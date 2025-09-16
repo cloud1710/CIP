@@ -67,9 +67,9 @@ features = [
         "tag": "RFM"
     },
     {
-        "title": "Tập luật (Association Rule)",
+        "title": "Tập luật",
         "img": IMG_RULE,
-        "text": "Khai phá mặt hàng thường đi kèm trong đơn.\nTạo combo, tối ưu bán kèm & đề xuất sản phẩm",
+        "text": "Khai phá các nhóm khách hàng.\nTạo các chiến lược giữ chân khách hàng",
         "tag": "TẬP LUẬT"
     },
     {
