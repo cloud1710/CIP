@@ -53,7 +53,7 @@ HERO_MIME = mimetypes.guess_type(str(HERO_FILE))[0] if HERO_EXISTS else "image/w
 # ============ ẢNH FEATURES ============
 IMG_RFM = Path("assets/rfm.png")
 IMG_RULE = Path("assets/rule.png")
-IMG_CLUSTER = Path("assets/cluster.png")
+IMG_CLUSTER = Path("assets/cluster.webp")
 
 def to_b64_local(p: Path):
     if p.exists():
