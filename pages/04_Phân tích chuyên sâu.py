@@ -218,88 +218,130 @@ if cust_df.empty:
 row = cust_df.iloc[0]
 cluster_id = row.get("cluster_gmm", None)
 
+# Chuẩn bị lịch sử đơn hàng
+cust_id_col = None
+for cand in ["member_number", "customer_id"]:
+    if cand in orders.columns:
+        cust_id_col = cand
+        break
+if cust_id_col is not None:
+    cust_orders = orders[orders[cust_id_col].astype(str) == str(row["customer_id"])].copy()
+else:
+    cust_orders = pd.DataFrame()
+
 # ================== GLOBAL STATS ==================
 rec_median = rfm_all["Recency"].median()
 freq_median = rfm_all["Frequency"].median()
 mon_median = rfm_all["Monetary"].median()
 
-# ================== STYLE ==================
+# ================== STYLE (UPDATED) ==================
 st.markdown("""
 <style>
-  .rfm-section * { font-size:16px !important; }
+  :root {
+      --font-base: 17px;
+      --font-small: 13.5px;
+      --font-medium: 15.5px;
+      --font-metric-value: 22px;
+      --line-base: 1.55;
+      --line-tight: 1.35;
+  }
+  .rfm-section * {
+      font-size: var(--font-base) !important;
+      line-height: var(--line-base);
+  }
   div[data-testid="stMetric"] {
       background: #f7faff;
-      padding: 10px 12px;
-      border-radius: 8px;
-      box-shadow: 0 0 0 1px #e3eefc;
+      padding: 12px 14px;
+      border-radius: 10px;
+      box-shadow: 0 0 0 1px #e1ebf7, 0 2px 4px rgba(0,0,0,0.04);
+      min-height: 92px;
   }
   div[data-testid="stMetricLabel"] {
-      font-size: 13px !important;
+      font-size: var(--font-small) !important;
       color:#2f5f92 !important;
-      font-weight:500 !important;
+      font-weight:600 !important;
+      letter-spacing:.2px;
   }
   div[data-testid="stMetricValue"] {
-      font-size: 20px !important;
+      font-size: var(--font-metric-value) !important;
       font-weight:600 !important;
-      color:#134f86 !important;
+      color:#0f4f85 !important;
+      line-height: var(--line-tight);
   }
   .snapshot-wrapper {
       background:#eef5fd;
-      padding:14px 16px 6px 16px;
-      border-radius:10px;
-      box-shadow: 0 1px 3px rgba(0,0,0,0.05);
-      margin-bottom:10px;
+      padding:16px 18px 10px 18px;
+      border-radius:12px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+      margin-bottom:14px;
+      border:1px solid #d8e6f6;
   }
   .snapshot-title {
-      font-size:18px;
-      font-weight:600;
-      margin:0 0 8px 0;
+      font-size:20px;
+      font-weight:650;
+      margin:0 0 10px 0;
       color:#0d4d92;
+      letter-spacing:.3px;
   }
   .blue-box {
       background:#f0f7ff;
-      border-radius:10px;
-      padding:16px 18px 12px 18px;
-      margin-bottom:20px;
-      font-size:15px;
-      box-shadow:0 2px 4px rgba(0,0,0,0.06);
+      border-radius:12px;
+      padding:18px 22px 14px 22px;
+      margin-bottom:26px;
+      font-size:var(--font-medium);
+      line-height:1.58;
+      box-shadow:0 2px 6px rgba(0,0,0,0.05);
+      border:1px solid #d2e5f7;
   }
   .blue-box h4 {
-      margin:0 0 10px 0;
-      font-size:17px;
-      font-weight:600;
+      margin:0 0 14px 0;
+      font-size:19px;
+      font-weight:650;
       color:#0d4d92;
+      line-height:1.3;
+      letter-spacing:.4px;
   }
   .blue-box ul {
-      margin:6px 0 6px 20px;
+      margin:8px 0 4px 20px;
       padding:0;
-      line-height:1.45;
+      list-style:disc;
   }
-  .blue-box li { margin:4px 0; }
+  .blue-box li {
+      margin:6px 0 8px 0;
+      padding-left:2px;
+  }
+  .blue-box li:last-child { margin-bottom:4px; }
   .pill {
       display:inline-block;
       background:#1976d2;
       color:#fff;
-      padding:2px 8px;
-      border-radius:12px;
-      font-size:11px;
-      margin-right:4px;
-      margin-bottom:4px;
+      padding:3px 9px 4px 9px;
+      border-radius:14px;
+      font-size:12px;
+      font-weight:500;
+      margin-right:5px;
+      margin-bottom:6px;
+      line-height:1.2;
+      box-shadow:0 1px 2px rgba(0,0,0,0.15);
   }
   .priority-badge {
-      font-size:11px;
-      padding:2px 6px;
-      border-radius:10px;
-      background:#fff;
+      font-size:12px;
+      padding:3px 7px 3px 7px;
+      border-radius:12px;
+      background:#ffffff;
       border:1px solid #1976d2;
       color:#1976d2;
-      margin-left:6px;
+      margin-left:8px;
+      font-weight:500;
   }
   .cat-Reactivation { background:#d32f2f !important; }
   .cat-Onboarding { background:#0288d1 !important; }
   .cat-Monetize { background:#6a1b9a !important; }
   .cat-Growth { background:#2e7d32 !important; }
   .cat-Retention { background:#ef6c00 !important; }
+  .cat-General { background:#546e7a !important; }
+  .blue-box a { color:#0d54ad; text-decoration:none; }
+  .blue-box a:hover { text-decoration:underline; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -355,9 +397,9 @@ def fetch_cluster_row(profile, cid):
     if cid in prof.index:
         return prof.loc[cid]
     try:
-            str_map = {str(i): i for i in prof.index}
-            if str(cid) in str_map:
-                return prof.loc[str_map[str(cid)]]
+        str_map = {str(i): i for i in prof.index}
+        if str(cid) in str_map:
+            return prof.loc[str_map[str(cid)]]
     except Exception:
         pass
     return None
@@ -480,6 +522,84 @@ def derive_personalized_plan(row, seg_info, cluster_dev_txt):
 
 personalized_plan = derive_personalized_plan(row, seg_info, cluster_dev_txt)
 
+# ================== PREFERENCE UTILITIES (NEW) ==================
+CATEGORY_ICONS = {
+    "Beverages": "🥤",
+    "Drink": "🥤",
+    "Food": "🍱",
+    "Snack": "🍪",
+    "Personal Care": "🧴",
+    "Cosmetics": "💄",
+    "Beauty": "💄",
+    "Household": "🏠",
+    "Home": "🏠",
+    "Electronics": "🔌",
+    "Device": "🔌",
+    "Fashion": "👕",
+    "Apparel": "👕",
+    "Health": "💊",
+    "Book": "📚",
+    "Sports": "🏃",
+    "Baby": "🍼",
+    "Pet": "🐾"
+}
+
+def icon_for_category(cat: str) -> str:
+    if not isinstance(cat, str) or not cat.strip():
+        return "📦"
+    lower = cat.lower()
+    for key, ic in CATEGORY_ICONS.items():
+        if key.lower() in lower:
+            return ic
+    return "📦"
+
+def extract_customer_preferences(cust_orders: pd.DataFrame, top_n: int = 3):
+    if cust_orders is None or cust_orders.empty:
+        return [], []
+    prod_col_candidates = ["product_name", "sku_name", "product_title", "product_id"]
+    prod_col = next((c for c in prod_col_candidates if c in cust_orders.columns), None)
+    cat_col_candidates = ["category", "category_name", "department", "cat_name"]
+    cat_col = next((c for c in cat_col_candidates if c in cust_orders.columns), None)
+    value_col = "gross_sales" if "gross_sales" in cust_orders.columns else None
+
+    top_products = []
+    if prod_col:
+        prod_df = cust_orders[[prod_col] + ([value_col] if value_col else [])].copy()
+        if value_col:
+            prod_rank = (prod_df.groupby(prod_col, dropna=True)[value_col]
+                         .sum()
+                         .sort_values(ascending=False)
+                         .head(top_n))
+            for name, val in prod_rank.items():
+                top_products.append(f"{name} ({val:,.0f})")
+        else:
+            prod_rank = (prod_df.groupby(prod_col, dropna=True)
+                         .size()
+                         .sort_values(ascending=False)
+                         .head(top_n))
+            for name, cnt in prod_rank.items():
+                top_products.append(f"{name} ({cnt}x)")
+
+    top_categories = []
+    if cat_col:
+        cat_df = cust_orders[[cat_col] + ([value_col] if value_col else [])].copy()
+        if value_col:
+            cat_rank = (cat_df.groupby(cat_col, dropna=True)[value_col]
+                        .agg(['sum', 'count'])
+                        .sort_values("sum", ascending=False)
+                        .head(top_n))
+            for idx, r in cat_rank.iterrows():
+                top_categories.append((idx, r["sum"], r["count"]))
+        else:
+            cat_rank = (cat_df.groupby(cat_col, dropna=True)
+                        .size()
+                        .sort_values(ascending=False)
+                        .head(top_n))
+            for idx, cnt in cat_rank.items():
+                top_categories.append((idx, None, cnt))
+
+    return top_products, top_categories
+
 # ================== SNAPSHOT ==================
 st.markdown('<div class="rfm-section">', unsafe_allow_html=True)
 st.markdown('<div class="snapshot-wrapper">', unsafe_allow_html=True)
@@ -543,6 +663,24 @@ def render_analysis_box():
         items.append("Giá trị cao – tối ưu giữ chân & CLV.")
     elif seg_key == "NEW":
         items.append("Cần đảm bảo mua lần 2 nhanh (≤30 ngày).")
+
+    top_products, top_categories = extract_customer_preferences(cust_orders, top_n=3)
+    if top_products:
+        items.append("Sản phẩm thường mua: " + ", ".join(top_products))
+    else:
+        items.append("Sản phẩm thường mua: (không đủ dữ liệu)")
+    if top_categories:
+        cat_parts = []
+        for cat, val, cnt in top_categories:
+            ic = icon_for_category(str(cat))
+            if val is not None:
+                cat_parts.append(f"{ic} {cat} ({val:,.0f}; {cnt}x)")
+            else:
+                cat_parts.append(f"{ic} {cat} ({cnt}x)")
+        items.append("Ngành hàng ưu thế: " + ", ".join(cat_parts))
+    else:
+        items.append("Ngành hàng ưu thế: (không đủ dữ liệu)")
+
     html_items = "".join(f"<li>{x}</li>" for x in items)
     return f"""
     <div class="blue-box">
@@ -606,35 +744,24 @@ if prob_cols and cluster_id is not None and pd.notna(cluster_id):
 
 # ================== LỊCH SỬ MUA HÀNG ==================
 st.markdown("### Lịch sử mua hàng")
-cust_id_col = None
-for cand in ["member_number", "customer_id"]:
-    if cand in orders.columns:
-        cust_id_col = cand
-        break
-if cust_id_col is None:
-    st.info("Không xác định được cột customer trong orders (cần member_number hoặc customer_id).")
-    cust_orders = pd.DataFrame()
-else:
-    cust_orders = orders[orders[cust_id_col].astype(str) == str(row["customer_id"])]
-
 if not cust_orders.empty and {"date"}.issubset(cust_orders.columns):
     value_col = "gross_sales" if "gross_sales" in cust_orders.columns else None
     cust_orders["_date"] = pd.to_datetime(cust_orders["date"], errors="coerce")
     if value_col:
         daily = (cust_orders
                  .groupby(cust_orders["_date"].dt.date)
-                 .agg(metric_val=(value_col,"sum"),
-                      orders=("order_id","nunique")))
+                 .agg(metric_val=(value_col, "sum"),
+                      orders=("order_id", "nunique")))
         st.line_chart(daily["metric_val"])
     else:
         daily = (cust_orders
                  .groupby(cust_orders["_date"].dt.date)
-                 .agg(orders=("order_id","nunique")))
+                 .agg(orders=("order_id", "nunique")))
         st.line_chart(daily["orders"])
 else:
     st.info("Không đủ cột (date) để vẽ lịch sử hoặc không có đơn hàng.")
 
-# ================== SO SÁNH VỚI TRUNG BÌNH CỤM (BIỂU ĐỒ) ==================
+# ================== SO SÁNH VỚI TRUNG BÌNH CỤM ==================
 st.markdown("### So sánh với Trung bình Cụm")
 cl_profile_row = fetch_cluster_row(profile_df, cluster_id)
 if cluster_id is not None and pd.notna(cluster_id) and cl_profile_row is not None:
@@ -647,10 +774,9 @@ if cluster_id is not None and pd.notna(cluster_id) and cl_profile_row is not Non
         ],
         "Customer": [row["Recency"], row["Frequency"], row["Monetary"]]
     })
-    # Biểu đồ cột nhóm
-    long_cmp = compare.melt(id_vars="Metric", value_vars=["ClusterMean","Customer"],
+    long_cmp = compare.melt(id_vars="Metric", value_vars=["ClusterMean", "Customer"],
                             var_name="Type", value_name="Value")
-    name_map = {"Recency":"Recency (days ↓ tốt)", "Frequency":"Frequency", "Monetary":"Monetary"}
+    name_map = {"Recency": "Recency (days ↓ tốt)", "Frequency": "Frequency", "Monetary": "Monetary"}
     long_cmp["MetricLabel"] = long_cmp["Metric"].map(name_map)
     fig_group = px.bar(
         long_cmp,
@@ -664,12 +790,10 @@ if cluster_id is not None and pd.notna(cluster_id) and cl_profile_row is not Non
     fig_group.update_layout(yaxis_title="Value", legend_title="")
     st.plotly_chart(fig_group, use_container_width=True)
 
-    # Biểu đồ chênh lệch % (chuẩn hoá: Recency đảo dấu)
     compare["DiffPctRaw"] = (compare["Customer"] - compare["ClusterMean"]) / (compare["ClusterMean"] + 1e-9) * 100
     def adj(row_):
         if row_["Metric"] == "Recency":
-            # Recency thấp hơn tốt hơn → đảo dấu để trực quan dương = tốt
-            return -row_["DiffPctRaw"]
+            return -row_["DiffPctRaw"]  # Recency thấp hơn là tốt → đảo dấu
         return row_["DiffPctRaw"]
     compare["DiffPctAdj"] = compare.apply(adj, axis=1)
     compare["Direction"] = np.where(compare["DiffPctAdj"] >= 0, "Better / Higher", "Worse / Lower")
@@ -688,7 +812,7 @@ if cluster_id is not None and pd.notna(cluster_id) and cl_profile_row is not Non
                            yaxis_title="")
     st.plotly_chart(fig_diff, use_container_width=True)
     with st.expander("Chi tiết số liệu so sánh"):
-        st.dataframe(compare[["Metric","ClusterMean","Customer","DiffPctRaw","DiffPctAdj"]].round(3))
+        st.dataframe(compare[["Metric", "ClusterMean", "Customer", "DiffPctRaw", "DiffPctAdj"]].round(3))
 else:
     st.info("Cluster profile không khả dụng.")
 
@@ -697,6 +821,7 @@ with st.expander("Chi tiết đơn hàng (top 50 gần nhất)"):
     if not cust_orders.empty and "date" in cust_orders.columns:
         cust_orders = cust_orders.sort_values("date", ascending=False)
     st.dataframe(cust_orders.head(50))
+
 # ============ FOOTER ============
 st.markdown(
     "<div style='text-align:left; color:#666; font-size:13px; margin-top:30px;'>© 2025 Đồ án tốt nghiệp lớp DL07_K306 - RFM Segmentation - Nhóm J</div>",
