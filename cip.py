@@ -69,13 +69,13 @@ features = [
     {
         "title": "Tập luật",
         "img": IMG_RULE,
-        "text": "Khai phá các nhóm khách hàng.\nTạo các chiến lược giữ chân khách hàng",
+        "text": "Khai phá các nhóm khách hàng.\nXây dựng chiến lược kích cầu, khuyến mãi phù hợp với từng người",
         "tag": "TẬP LUẬT"
     },
     {
         "title": "Phân cụm theo Gaussian Mixture Model",
         "img": IMG_CLUSTER,
-        "text": "Nhóm khách tương đồng hành vi không cần nhãn.\nKhám phá phân khúc & thiết kế chiến dịch chính xác",
+        "text": "Nhóm khách tương đồng hành vi mua sắm.\nKhám phá phân khúc & thiết kế chiến dịch chính xác",
         "tag": "GMM"
     },
 ]
