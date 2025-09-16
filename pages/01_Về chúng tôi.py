@@ -2,8 +2,8 @@ import streamlit as st
 import os, base64
 
 # ================== CẤU HÌNH CƠ BẢN ==================
-APP_NAME = "ECOM - Customers Segmentation"
-APP_VERSION = "v1.3.0"
+APP_NAME = "CIP - Customer Intelligence Platform"
+APP_VERSION = "v1.3.1"
 
 # ================== ẢNH LOCAL ==================
 AVATAR_PHUONG = "assets/phuong.png"
