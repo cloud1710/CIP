@@ -11,3 +11,4 @@ seaborn==0.13.2
 plotly==5.23.0
 pyarrow==17.0.0
 Pillow==10.4.0
+squarify==0.4.3
