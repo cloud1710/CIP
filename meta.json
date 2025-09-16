@@ -1,0 +1,19 @@
+{
+  "model_type": "GMM",
+  "n_components": 5,
+  "standardized": true,
+  "standardize_basis": "Monetary_mean_desc",
+  "random_state": 42,
+  "features": [
+    "Recency",
+    "Frequency",
+    "Monetary"
+  ],
+  "created_at": "2025-09-16T10:52:56.627493Z",
+  "row_count": 3898,
+  "data_hash": "3af6c47d75f33cb9",
+  "mapping_file": "mapping_components.json",
+  "labels_file": "labels.parquet",
+  "profile_file": "cluster_profile.parquet",
+  "force_refit": false
+}

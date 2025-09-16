@@ -1,0 +1,16 @@
+{
+  "model_type": "GMM",
+  "version": "v1",
+  "n_components": 5,
+  "features": [
+    "Recency",
+    "Frequency",
+    "Monetary"
+  ],
+  "trained_at_utc": "2025-09-15 18:04:11",
+  "data_fingerprint": "f085ccdad4558cb9c188ee6bbf2a09ee",
+  "pipeline_steps": [
+    "standard_scale"
+  ],
+  "original_rows": 3898
+}
