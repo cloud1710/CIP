@@ -23,8 +23,8 @@ except Exception:
 try:
     from src.cluster_profile import load_artifacts
 except Exception as e:
-    load_artifacts = None
-    _cluster_import_error = str(e)
+        load_artifacts = None
+        _cluster_import_error = str(e)
 
 try:
     from src.recommendation import recommend_actions
@@ -37,7 +37,6 @@ st.set_page_config(page_title="04 - Customer", layout="wide")
 DATA_PATH = Path("data/orders_full.csv")
 GMM_DIR = Path("models/gmm/gmm_rfm_v1")
 
-# ================= Segment Catalog =================
 segment_catalog = {
     "LOST":{"definition":"Khách hàng lâu không quay lại, Recency cao vượt ngưỡng.","base_goal":"Tái kích hoạt hoặc xác định lý do rời bỏ.","base_strategies":["Win-back voucher / quà sinh nhật","Flash sale tái kích hoạt","Khảo sát lý do rời bỏ"],"kpi_focus":["Reactivation Rate","Open Rate","Return Purchase"],"upgrade_path":"Chuyển thành ACTIVE rồi REGULARS / LOYAL","risk_signals":["Recency cao","Frequency giảm","Không phản hồi chiến dịch"]},
     "REGULARS":{"definition":"Khách mua đều đặn, hành vi ổn định.","base_goal":"Duy trì tần suất và tăng giá trị đơn hàng.","base_strategies":["Ưu đãi duy trì nhẹ","Theo dõi nâng cấp lên LOYAL / BIG SPENDER","Tối ưu trải nghiệm"],"kpi_focus":["Repeat Rate","AOV","Frequency"],"upgrade_path":"Nâng lên LOYAL hoặc BIG SPENDER","risk_signals":["Tần suất giảm tuần/tháng","Giảm giá trị đơn"]},
@@ -50,9 +49,8 @@ segment_catalog = {
     "OTHER":{"definition":"Nhóm nhỏ / chưa rõ đặc trưng.","base_goal":"Thu thập thêm dữ liệu hành vi.","base_strategies":["Theo dõi thêm hành vi","Điều chỉnh tiêu chí phân nhóm","Kiểm soát chi phí chăm sóc"],"kpi_focus":["Data Completeness"],"upgrade_path":"Phân bổ lại sang nhóm chính","risk_signals":["Khối lượng thấp","Nhiễu nhãn"]}
 }
 
-RADAR_TARGET_HEIGHT = 250
+RADAR_TARGET_HEIGHT = 200
 
-# ================= Cached Functions =================
 @st.cache_data
 def build_rfm():
     raw = load_orders(DATA_PATH)
@@ -104,7 +102,7 @@ def compute_combo_rules(raw_orders: pd.DataFrame, min_support_orders: int = 5):
     except Exception as e:
         return pd.DataFrame(), {"status":"error","error":str(e)}
 
-# ================= Load Data =================
+# Load data
 try:
     orders, rfm_base = build_rfm()
 except Exception as e:
@@ -133,10 +131,10 @@ if "cluster_gmm" not in rfm_all.columns:
 with st.spinner("Đang tính toán gợi ý combo..."):
     combo_rules, combo_meta = compute_combo_rules(orders, min_support_orders=5)
 
-# ================= Input =================
+# Input
 st.title("👤 Phân tích Khách hàng chuyên sâu")
-st.markdown("Nhập ID khách hàng (1000–5000).")
-input_id_raw = st.text_input("customer_id:", value="")
+st.markdown("Nhập ID khách hàng (từ 1000 - 5000)")
+input_id_raw = st.text_input("", value="", placeholder="Ví dụ: 1234")
 if not input_id_raw.strip():
     st.stop()
 if not input_id_raw.isdigit():
@@ -154,14 +152,12 @@ if cust_df.empty:
 row = cust_df.iloc[0]
 cluster_id = row.get("cluster_gmm", None)
 
-# ================= Customer Orders =================
 cust_id_col = next((c for c in ["member_number","customer_id"] if c in orders.columns), None)
 if cust_id_col:
     cust_orders = orders[orders[cust_id_col].astype(str) == str(row["customer_id"])].copy()
 else:
     cust_orders = pd.DataFrame()
 
-# ================= Combo Recs =================
 combo_recs = []
 if _combo_available and not combo_rules.empty:
     try:
@@ -185,39 +181,65 @@ if _combo_available and not combo_rules.empty:
     except Exception:
         combo_recs = []
 
-# ================= Medians =================
 rec_median = rfm_all["Recency"].median()
 freq_median = rfm_all["Frequency"].median()
 mon_median = rfm_all["Monetary"].median()
 
-# ================= Styles =================
+# Styles
 st.markdown("""
 <style>
-  .segment-header {border-radius:14px; padding:18px 22px 14px 22px; margin: 6px 0 18px 0; display:flex; align-items:center; justify-content:space-between; box-shadow:0 2px 6px rgba(0,0,0,0.07); color:#fff; font-family:'Inter','Segoe UI',system-ui;}
+  :root {
+    --accent-blue:#0d4d92;
+    --card-bg:#ffffff;
+    --card-bg-soft:#f5f8fb;
+    --card-border:#d2dde7;
+    --box-strong:#edf4fb;
+    --cat-bg:#fff7ec;
+    --prod-bg:#eef9f0;
+    --combo-bg:#fff4e6;
+  }
+  .segment-header {border-radius:14px; padding:18px 22px 14px 22px; margin:6px 0 18px 0; display:flex; align-items:center; justify-content:space-between; box-shadow:0 2px 6px rgba(0,0,0,0.07); color:#fff; font-family:'Inter','Segoe UI',system-ui;}
   .segment-header h2 { font-size:26px; font-weight:700; margin:0;}
-  .segment-badge { font-size:16px; font-weight:600; padding:6px 16px; background:rgba(255,255,255,0.18); border:1px solid rgba(255,255,255,0.40); border-radius:24px;}
-  .metric-card, .cluster-card, .radar-wrap { background:#f6f9fe; border:1px solid #dbe8f7; border-radius:14px; box-shadow:0 1px 4px rgba(0,0,0,0.06);}
-  .metric-card { padding:18px 20px 18px 20px; display:flex; flex-direction:column; gap:14px; height:100%;}
-  .metric-card h4 { margin:0; font-size:16px; font-weight:660; color:#0d4d92; letter-spacing:.3px;}
+  .segment-badge { font-size:16px; font-weight:600; padding:6px 16px; background:rgba(255,255,255,0.18); border:1px solid rgba(255,255,255,0.38); border-radius:24px;}
+  .metric-card, .cluster-card, .radar-wrap { background:var(--card-bg-soft); border:1px solid var(--card-border); border-radius:14px; box-shadow:0 1px 3px rgba(0,0,0,0.05);}
+  .metric-card { padding:18px 20px 18px 20px; display:flex; flex-direction:column; gap:14px;}
+  .metric-card h4 { margin:0; font-size:16px; font-weight:660; color:var(--accent-blue); letter-spacing:.3px;}
   .rfm-flex { display:flex; gap:16px; }
   .rfm-col { flex:1; display:flex; flex-direction:column; gap:10px; }
-  .metric-item { background:#ffffff; border:1px solid #e2ecf6; border-radius:11px; padding:10px 10px 8px 10px; text-align:center; display:flex; flex-direction:column; justify-content:center; min-height:72px;}
-  .metric-item span.label { font-size:12px; color:#4372a3; font-weight:500; margin-bottom:4px; letter-spacing:.25px;}
+  .metric-item { background:var(--card-bg); border:1px solid var(--card-border); border-radius:11px; padding:10px 10px 8px 10px; text-align:center; display:flex; flex-direction:column; justify-content:center; min-height:72px;}
+  .metric-item span.label { font-size:12px; color:#4372a3; font-weight:500; margin-bottom:4px; letter-spacing:.3px;}
   .metric-item span.value { font-size:20px; font-weight:600; color:#0f4f85; line-height:1.05;}
-  .cluster-card { padding:16px 18px 14px 18px; display:flex; flex-direction:column; gap:12px; height:100%;}
-  .cluster-card h4 { margin:0; font-size:16px; font-weight:660; color:#0d4d92; letter-spacing:.3px;}
+  .cluster-card { padding:16px 18px 14px 18px; display:flex; flex-direction:column; gap:14px;}
+  .cluster-card h4 { margin:0; font-size:16px; font-weight:660; color:var(--accent-blue); letter-spacing:.3px;}
   .cluster-grid { display:grid; grid-template-columns:repeat(2,1fr); gap:10px; }
-  .c-box { background:#ffffff; border:1px solid #e3edf7; border-radius:10px; padding:8px 10px 6px 10px; display:flex; flex-direction:column; justify-content:center; min-height:60px; text-align:center;}
-  .c-box .label { font-size:11px; color:#4372a3; font-weight:500; margin-bottom:3px; letter-spacing:.25px;}
-  .c-box .value { font-size:18px; font-weight:600; color:#0f4f85; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
-  .c-desc { grid-column:1 / span 2; min-height:100px; text-align:left; align-items:flex-start; padding:10px 12px 8px 12px;}
-  .c-desc .value { font-size:13px; font-weight:600; color:#0f4f85; line-height:1.25; white-space:normal; display:-webkit-box; -webkit-line-clamp:4; -webkit-box-orient:vertical; overflow:hidden;}
-  .radar-wrap { padding:16px 14px 10px 14px; display:flex; flex-direction:column; gap:8px; height:100%;}
-  .radar-title { font-size:16px; font-weight:660; color:#0d4d92; margin:0; letter-spacing:.3px;}
-  .blue-box { background:#f0f7ff; border-radius:14px; padding:22px 26px 16px 26px; margin:10px 0 26px 0; font-size:15.2px; line-height:1.58; box-shadow:0 2px 5px rgba(0,0,0,0.05); border:1px solid #d2e5f7;}
-  .blue-box h4 { margin:0 0 14px 0; font-size:20px; font-weight:700; color:#0d4d92;}
-  .blue-box ul { margin:4px 0 4px 22px; padding:0;}
-  .blue-box li { margin:4px 0 8px 0;}
+  .c-box { background:var(--card-bg); border:1px solid var(--card-border); border-radius:10px; padding:8px 10px 6px 10px; display:flex; flex-direction:column; justify-content:center; min-height:74px; text-align:center;}
+  .c-desc { grid-column:1 / span 2; min-height:76px; text-align:left; align-items:flex-start; padding:10px 12px 8px 12px;}
+  .c-box .label { font-size:12px; color:#4372a3; font-weight:500; margin-bottom:4px; letter-spacing:.3px;}
+  .c-box .value { font-size:20px; font-weight:600; color:#0f4f85; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+  .c-desc .value { font-size:16px; font-weight:600; color:#0f4f85; line-height:1.25;}
+  .radar-wrap { padding:16px 14px 10px 14px; display:flex; flex-direction:column; gap:8px;}
+  .radar-title { font-size:0; margin:0; }
+  .blue-box { background:var(--box-strong); border-radius:16px; padding:22px 26px 16px 26px; margin:10px 0 24px 0; font-size:15.2px; line-height:1.55; box-shadow:0 1px 4px rgba(0,0,0,0.05); border:1px solid var(--card-border);}
+  .blue-box h4 { margin:0 0 14px 0; font-size:20px; font-weight:700; color:var(--accent-blue);}
+  .history-title { font-weight:700; margin:4px 0 10px 0; font-size:17px; color:var(--accent-blue);}
+  .pref-stack { display:flex; flex-direction:column; gap:10px; } /* gap adjusted to 10px */
+  .pref-box, .combo-box {
+     border:1px solid var(--card-border);
+     border-radius:16px;
+     padding:20px 22px 18px 22px;
+     font-size:15.2px;
+     line-height:1.55;
+     box-shadow:0 1px 4px rgba(0,0,0,0.05);
+  }
+  .pref-box h5, .combo-box h5 {
+     margin:0 0 12px 0; font-size:20px; font-weight:700; color:var(--accent-blue);
+  }
+  .pref-box.cat { background:var(--cat-bg); }
+  .pref-box.prod { background:var(--prod-bg); }
+  .combo-box { background:var(--combo-bg); }
+  .pref-box ul, .combo-box ul { margin:0; padding-left:20px; }
+  .pref-box li, .combo-box li { margin:4px 0 6px 0; }
+  .combo-empty { font-style:italic; color:#666; }
   .priority-badge { font-size:11px; padding:3px 7px; border-radius:10px; background:#ffffff; border:1px solid #1976d2; color:#1976d2; margin-left:6px; font-weight:500;}
   .pill { display:inline-block; background:#1976d2; color:#fff; padding:4px 10px 5px 10px; border-radius:16px; font-size:12px; font-weight:600; margin:3px 6px 6px 0; line-height:1.05; box-shadow:0 1px 2px rgba(0,0,0,0.15); position:relative; cursor:help;}
   .pill[data-tip]:hover::after { content:attr(data-tip); position:absolute; left:50%; transform:translateX(-50%); bottom:110%; background:#0d4d92; color:#fff; padding:8px 10px; border-radius:8px; width:230px; font-size:11.5px; line-height:1.4; box-shadow:0 4px 10px rgba(0,0,0,0.18); z-index:30; pointer-events:none; text-align:left;}
@@ -229,21 +251,16 @@ st.markdown("""
   .cat-Retention { background:#ef6c00 !important; }
   .cat-General { background:#546e7a !important; }
   .risk-pill { background:#b71c1c !important; }
-  .history-title { font-weight:600; margin:8px 0 10px 0; font-size:16px; color:#0d4d92;}
-  .triple-wrapper { display:flex; gap:14px; width:100%; margin:10px 0 6px 0; }
-  .pref-box { background:#ffffff; border:1px solid #dbe8f7; border-radius:14px; padding:14px 16px 12px 16px; flex:1; font-size:14.8px; line-height:1.5; box-shadow:0 1px 3px rgba(0,0,0,0.05); display:flex; flex-direction:column;}
-  .pref-box h5 { margin:0 0 10px 0; font-size:15.5px; font-weight:650; color:#0d4d92; letter-spacing:.2px; }
-  .pref-box ul { margin:0; padding-left:18px; }
-  .pref-box li { margin:4px 0 6px 0; }
-  .combo-list { margin:0; padding-left:18px; }
   .note-hover { font-size:12px; color:#555; margin:4px 0 0 2px; }
-  @media (max-width:1100px){
-     .triple-wrapper { flex-direction:column; }
+  @media (max-width:1200px){
+     .pref-stack { flex-direction:row; }
+  }
+  @media (max-width:900px){
+     .pref-stack { flex-direction:column; }
   }
 </style>
 """, unsafe_allow_html=True)
 
-# ================= Qualitative Helpers =================
 def qualitative_recency(rec_d, median):
     if rec_d <= 0.6*median: return "rất mới"
     if rec_d <= median: return "khá mới"
@@ -363,6 +380,7 @@ def derive_personalized_plan(row, seg_info, cluster_dev_txt):
         "tactics": enriched,
         "notes": [n for n in mod_rec.get("notes",[]) if "(Missing recommendation" not in n]
     }
+
 personalized_plan = derive_personalized_plan(row, seg_info, cluster_dev_txt)
 
 DEFAULT_SEGMENT_COLORS = {
@@ -379,7 +397,6 @@ if profile_df is not None and cluster_id is not None and pd.notna(cluster_id):
         marketing_name = clrow.get("cluster_marketing_name")
         label_desc = clrow.get("cluster_label_desc")
 
-# ================= Header =================
 st.markdown(
     f"""
     <div class="segment-header" style="background:{seg_color};">
@@ -390,7 +407,6 @@ st.markdown(
     unsafe_allow_html=True
 )
 
-# ================= Top Layout =================
 col_left, col_right = st.columns([5,5])
 with col_left:
     st.markdown(f"""
@@ -438,7 +454,7 @@ with col_right:
           </div>
         """, unsafe_allow_html=True)
     with radar_col:
-        st.markdown("<div class='radar-wrap'><p class='radar-title'>Radar</p>", unsafe_allow_html=True)
+        st.markdown("<div class='radar-wrap'><p class='radar-title'>.</p>", unsafe_allow_html=True)
         def make_rfm_radar(rval, fval, mval):
             categories = ["R","F","M"]
             values = [rval, fval, mval]
@@ -461,7 +477,6 @@ with col_right:
         st.plotly_chart(make_rfm_radar(int(row["R"]), int(row["F"]), int(row["M"])), use_container_width=True)
         st.markdown("</div>", unsafe_allow_html=True)
 
-# ================= Phân tích đặc điểm =================
 def build_analysis_points():
     pct_rec_better = (rfm_all["Recency"] < row["Recency"]).mean()*100
     pct_freq = (rfm_all["Frequency"] <= row["Frequency"]).mean()*100
@@ -486,27 +501,6 @@ def build_analysis_points():
 analysis_html = "<ul>" + "".join(f"<li>{x}</li>" for x in build_analysis_points()) + "</ul>"
 st.markdown(f"<div class='blue-box'><h4>Phân tích đặc điểm</h4>{analysis_html}</div>", unsafe_allow_html=True)
 
-# ================= Lịch sử mua hàng (Full Width) =================
-st.markdown("<div class='history-title'>Lịch sử mua hàng</div>", unsafe_allow_html=True)
-if not cust_orders.empty and "date" in cust_orders.columns:
-    value_col = "gross_sales" if "gross_sales" in cust_orders.columns else None
-    cust_orders["_date"] = pd.to_datetime(cust_orders["date"], errors="coerce")
-    if value_col:
-        daily = (cust_orders.groupby(cust_orders["_date"].dt.date)
-                 .agg(metric_val=(value_col,"sum"), orders=("order_id","nunique")))
-        fig_hist = px.line(daily, y="metric_val", template="plotly_white")
-        fig_hist.update_layout(yaxis_title="Doanh thu", xaxis_title="", title="", height=320)
-    else:
-        daily = (cust_orders.groupby(cust_orders["_date"].dt.date)
-                 .agg(orders=("order_id","nunique")))
-        fig_hist = px.line(daily, y="orders", template="plotly_white")
-        fig_hist.update_layout(yaxis_title="Số đơn", xaxis_title="", title="", height=320)
-    fig_hist.update_layout(margin=dict(l=10,r=10,t=10,b=4), showlegend=False)
-    st.plotly_chart(fig_hist, use_container_width=True)
-else:
-    st.info("Không đủ cột (date) hoặc không có dữ liệu đơn hàng.")
-
-# ================= Preferences Boxes =================
 def icon_for_category(cat: str) -> str:
     CATEGORY_ICONS = {
         "Beverages":"🥤","Drink":"🥤","Food":"🍱","Snack":"🍪","Personal Care":"🧴",
@@ -546,58 +540,80 @@ if combo_recs:
             seen_pairs.add((a,b))
             combo_lines.append(f"<li>{a} + {b}</li>")
 
-st.markdown(
-    "<div class='triple-wrapper'>"
-    "<div class='pref-box'>"
-    "<h5>Ngành hàng ưa thích</h5>"
-    + ("<ul>" + "".join(f"<li>{icon_for_category(c)} {c}</li>" for c in top_categories) + "</ul>" if top_categories else "<p>(Không đủ dữ liệu)</p>")
-    + "</div>"
-    "<div class='pref-box'>"
-    "<h5>Sản phẩm thường mua</h5>"
-    + ("<ul>" + "".join(f"<li>{p}</li>" for p in top_products) + "</ul>" if top_products else "<p>(Không đủ dữ liệu)</p>")
-    + "</div>"
-    "<div class='pref-box'>"
-    "<h5>Sản phẩm gợi ý (Combo)</h5>"
-    + ("<ul class='combo-list'>" + "".join(combo_lines) + "</ul>" if combo_lines else "<p>(Chưa có gợi ý)</p>")
-    + "</div>"
-    "</div>",
-    unsafe_allow_html=True
-)
+# Lịch sử & ưu tiên
+bh_left, bh_right = st.columns([7,5])
+with bh_left:
+    st.markdown("<div class='history-title'>Lịch sử mua hàng</div>", unsafe_allow_html=True)
+    if not cust_orders.empty and "date" in cust_orders.columns:
+        value_col = "gross_sales" if "gross_sales" in cust_orders.columns else None
+        cust_orders["_date"] = pd.to_datetime(cust_orders["date"], errors="coerce")
+        if value_col:
+            daily = (
+                cust_orders.groupby(cust_orders["_date"].dt.date)
+                .agg(metric_val=(value_col,"sum"), orders=("order_id","nunique"))
+            )
+            fig_hist = px.line(daily, y="metric_val", template="plotly_white")
+            fig_hist.update_layout(yaxis_title="Doanh thu", xaxis_title="", title="", height=420)
+        else:
+            daily = (
+                cust_orders.groupby(cust_orders["_date"].dt.date)
+                .agg(orders=("order_id","nunique"))
+            )
+            fig_hist = px.line(daily, y="orders", template="plotly_white")
+            fig_hist.update_layout(yaxis_title="Số đơn", xaxis_title="", title="", height=420)
+        fig_hist.update_layout(margin=dict(l=10,r=10,t=10,b=4), showlegend=False)
+        st.plotly_chart(fig_hist, use_container_width=True)
+    else:
+        st.info("Không đủ cột (date) hoặc không có dữ liệu đơn hàng.")
+with bh_right:
+    st.markdown("<div class='pref-stack'>", unsafe_allow_html=True)
+    cat_html = "<ul>" + "".join(f"<li>{icon_for_category(c)} {c}</li>" for c in top_categories) + "</ul>" if top_categories else "<p><i>(Không đủ dữ liệu)</i></p>"
+    st.markdown(f"""
+        <div class="pref-box cat">
+          <h5>Ngành hàng ưa thích</h5>
+          {cat_html}
+        </div>
+    """, unsafe_allow_html=True)
+    prod_html = "<ul>" + "".join(f"<li>{p}</li>" for p in top_products) + "</ul>" if top_products else "<p><i>(Không đủ dữ liệu)</i></p>"
+    st.markdown(f"""
+        <div class="pref-box prod">
+          <h5>Sản phẩm thường mua</h5>
+          {prod_html}
+        </div>
+    """, unsafe_allow_html=True)
+    st.markdown("</div>", unsafe_allow_html=True)
 
-# ================= KPI Tooltips (VIETNAMESE UPDATED) =================
 KPI_TOOLTIPS = {
-    "CLV": "Customer Lifetime Value: Giá trị vòng đời ước tính (tổng lợi nhuận gộp kỳ vọng trừ chi phí phục vụ).",
-    "AOV": "Average Order Value: Giá trị đơn hàng trung bình = Doanh thu / Số đơn.",
-    "Frequency": "Tần suất mua bình quân (số đơn / khách trong kỳ).",
-    "Retention": "Tỷ lệ khách vẫn phát sinh mua ở kỳ tiếp theo (hoặc trong cửa sổ N ngày).",
-    "Second Purchase Rate": "Tỷ lệ khách mới có đơn thứ 2 trong ≤30 ngày kể từ đơn đầu.",
-    "Upsell Rate": "Tỷ lệ đơn có giá trị > ngưỡng chuẩn (ví dụ > median AOV phân khúc).",
-    "Cross-sell Rate": "Tỷ lệ đơn chứa ≥2 ngành hàng hoặc sản phẩm bổ trợ.",
-    "Referral Rate": "Tỷ lệ khách tạo ít nhất 1 giới thiệu thành công (referral có đơn).",
-    "Referral": "Tương đương Referral Rate: khách tạo ít nhất 1 referral chuyển đổi.",
-    "Reactivation Rate": "Tỷ lệ khách ngủ đông (không mua X ngày) quay lại mua trong kỳ.",
-    "Open Rate": "Tỷ lệ mở kênh (email / push) = Lượt mở / Lượt gửi hợp lệ.",
-    "Return Purchase": "Tỷ lệ khách quay lại có thêm ≥1 đơn sau lần mua gần nhất trong khung quan sát.",
-    "Repeat Rate": "Tỷ lệ khách có ≥2 đơn trong kỳ / tổng khách phát sinh đơn.",
-    "Activation": "Tỷ lệ khách mới đạt điều kiện kích hoạt (ví dụ ≥2 đơn trong 30 ngày đầu).",
-    "Repeat Cycle Time": "Thời gian trung bình (ngày) giữa 2 đơn liên tiếp (chu kỳ lặp lại).",
-    "Onboarding Completion": "Tỷ lệ khách mới hoàn tất chuỗi onboarding (mở đủ bước hoặc thực hiện hành vi chính).",
-    "Data Completeness": "Mức độ đầy đủ dữ liệu: % trường quan trọng có giá trị hợp lệ.",
-    "Monetary": "Tổng chi tiêu (doanh thu) của khách trong kỳ phân tích."
+    "CLV": "Customer Lifetime Value",
+    "AOV": "Average Order Value",
+    "Frequency": "Tần suất mua bình quân",
+    "Retention": "Tỷ lệ giữ chân",
+    "Second Purchase Rate": "Tỷ lệ đơn hàng thứ 2 ≤30 ngày",
+    "Upsell Rate": "Tỷ lệ đơn vượt ngưỡng giá trị",
+    "Cross-sell Rate": "Tỷ lệ đơn có ≥2 ngành hàng",
+    "Referral Rate": "Tỷ lệ referral chuyển đổi",
+    "Referral": "Referral Rate",
+    "Reactivation Rate": "Tỷ lệ khách ngủ quay lại",
+    "Open Rate": "Tỷ lệ mở chiến dịch",
+    "Return Purchase": "Tỷ lệ có đơn tiếp theo",
+    "Repeat Rate": "≥2 đơn trong kỳ",
+    "Activation": "Khách mới đạt ≥2 đơn/30 ngày",
+    "Repeat Cycle Time": "Chu kỳ lặp lại trung bình",
+    "Onboarding Completion": "Hoàn tất onboarding",
+    "Data Completeness": "Độ đầy đủ dữ liệu",
+    "Monetary": "Tổng chi tiêu"
 }
-
 CAT_TOOLTIPS = {
-    "Reactivation":"Kích hoạt lại khách rời bỏ / ngủ đông",
-    "Onboarding":"Đưa khách mới tới đơn thứ 2 nhanh",
-    "Monetize":"Tăng giá trị đơn & CLV",
-    "Growth":"Mở rộng tệp qua referral",
-    "Retention":"Giữ chân, giảm churn",
-    "General":"Khác / hỗ trợ"
+    "Reactivation":"Kích hoạt lại",
+    "Onboarding":"Đẩy đơn hàng 2",
+    "Monetize":"Tăng giá trị",
+    "Growth":"Mở rộng (referral)",
+    "Retention":"Giữ chân",
+    "General":"Khác"
 }
-RISK_TIP = "Các tín hiệu cần giám sát."
+RISK_TIP = "Tín hiệu cần giám sát."
 PRIORITY_TIP = "90+ rất cao; 80–89 cao; 60–79 trung bình; <60 hỗ trợ."
 
-# ================= Strategy Renderer =================
 def render_strategy_box(plan):
     tactic_html=[]
     for t in plan["tactics"]:
@@ -608,10 +624,7 @@ def render_strategy_box(plan):
             f"<span class='priority-badge pill' data-tip='{PRIORITY_TIP}'>{pr}</span>"
             f" <span class='pill cat-{cat}' data-tip='{cat_tip}'>{cat}</span></li>"
         )
-    kpi_html=" ".join(
-        f"<span class='pill' data-tip='{KPI_TOOLTIPS.get(k,k)}'>{k}</span>"
-        for k in plan["kpis"]
-    )
+    kpi_html=" ".join(f"<span class='pill' data-tip='{KPI_TOOLTIPS.get(k,k)}'>{k}</span>" for k in plan["kpis"])
     risk_html=" ".join(f"<span class='pill risk-pill' data-tip='{RISK_TIP}'>{r}</span>" for r in plan["risk_signals"])
     notes_html=""
     if plan.get("notes"):
@@ -629,9 +642,19 @@ def render_strategy_box(plan):
       <p class='note-hover'><i>Rê chuột vào pill để xem chú thích.</i></p>
     </div>
     """
-st.markdown(render_strategy_box(personalized_plan), unsafe_allow_html=True)
 
-# ================= So sánh cụm =================
+st_left, st_right = st.columns([7,5])
+with st_left:
+    st.markdown(render_strategy_box(personalized_plan), unsafe_allow_html=True)
+with st_right:
+    combo_html = "<ul>" + "".join(combo_lines) + "</ul>" if combo_lines else "<p class='combo-empty'>(Chưa có gợi ý)</p>"
+    st.markdown(f"""
+        <div class="combo-box">
+          <h5>Sản phẩm gợi ý (Combo)</h5>
+          {combo_html}
+        </div>
+    """, unsafe_allow_html=True)
+
 st.markdown("### So sánh với Trung bình Cụm")
 cl_profile_row = fetch_cluster_row(profile_df, cluster_id) if (cluster_id is not None and pd.notna(cluster_id)) else None
 if cl_profile_row is not None:
@@ -672,10 +695,15 @@ if cl_profile_row is not None:
 else:
     st.info("Không đủ thông tin cụm để so sánh.")
 
-# ================= Order Detail =================
 with st.expander("Chi tiết đơn hàng (top 50 gần nhất)"):
     if not cust_orders.empty and "date" in cust_orders.columns:
         cust_orders = cust_orders.sort_values("date", ascending=False)
     st.dataframe(cust_orders.head(50))
 
 st.markdown("<div style='text-align:left; color:#666; font-size:13px; margin-top:30px;'>© 2025 Đồ án tốt nghiệp lớp DL07_K306 - RFM Segmentation - Nhóm J</div>", unsafe_allow_html=True)
+
+st.markdown("""
+<style>
+.radar-wrap { background:transparent !important; border:none !important; box-shadow:none !important; }
+</style>
+""", unsafe_allow_html=True)
