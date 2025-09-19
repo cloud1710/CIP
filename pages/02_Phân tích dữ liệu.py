@@ -15,15 +15,6 @@ st.set_page_config(
 # ================== CSS ==================
 st.markdown("""
 <style>
-.kpi-box {
-    padding: 0.75rem 1rem;
-    border: 1px solid #ddd;
-    border-radius: 6px;
-    background: #f8f9fa;
-    font-size: 0.9rem;
-    line-height: 1.35rem;
-    margin-bottom: 1rem;
-}
 .analysis-box {
     padding: 0.9rem 1rem;
     border-left: 4px solid #4b8bec;
@@ -36,6 +27,27 @@ st.markdown("""
     margin-top: 0;
     margin-bottom: 0.4rem;
     font-size: 1rem;
+}
+.strategy-box {
+    padding: 0.9rem 1rem;
+    border-left: 4px solid #d27d2d;
+    background: #fff5eb;
+    border-radius: 4px;
+    font-size: 0.85rem;
+    line-height: 1.35rem;
+}
+.strategy-box h4 {
+    margin-top: 0;
+    margin-bottom: 0.5rem;
+    font-size: 1rem;
+}
+.weekday-box {
+    padding: 0.75rem 1rem;
+    border-left: 4px solid #7b4ded;
+    background:#f4f0ff;
+    border-radius:6px;
+    font-size:0.82rem;
+    line-height:1.3rem;
 }
 .abc-box {
     padding: 0.75rem 1rem;
@@ -99,7 +111,7 @@ def compute_category_metrics(df: pd.DataFrame, top_n=15):
             "category": "OTHERS",
             "orders": others["orders"].sum(),
             "revenue": others["revenue"].sum(),
-            "customers": others["customers"].nunique(),
+            "customers": others["customers"].sum(),
             "quantity": others["quantity"].sum(),
             "revenue_share_%": others["revenue"].sum() / cat["revenue"].sum() * 100
         }
@@ -133,11 +145,10 @@ def compute_customer_metrics(df: pd.DataFrame):
     return cust
 
 @st.cache_data(show_spinner=False)
-def compute_heatmap(df: pd.DataFrame):
+def compute_weekday_summary(df: pd.DataFrame):
     t = df.copy()
     t["weekday"] = t["order_date"].dt.weekday
-    t["hour"] = t["order_date"].dt.hour
-    return (t.groupby(["weekday","hour"])
+    return (t.groupby("weekday")
               .agg(revenue=("order_value","sum"),
                    orders=("order_id","nunique"))
               .reset_index())
@@ -308,8 +319,6 @@ else:
 mask = (df["order_date"] >= pd.to_datetime(start_date)) & (df["order_date"] <= pd.to_datetime(end_date) + pd.Timedelta(days=1) - pd.Timedelta(seconds=1))
 df = df.loc[mask].copy()
 
-# (ĐÃ BỎ chọn ngành hàng ở sidebar)  # CHANGED
-
 st.sidebar.markdown("---")
 st.sidebar.markdown(f"Nguồn: {source_label}")
 st.sidebar.markdown(f"Số dòng: **{len(df)}**")
@@ -328,36 +337,33 @@ cust_order_counts = df.groupby("customer_id")["order_id"].nunique()
 repeat_rate = cust_order_counts[cust_order_counts >= 2].count() / total_customers * 100 if total_customers else 0
 rev_per_customer = total_revenue / total_customers if total_customers else 0
 
-c1, c2, c3, c4, c5, c6 = st.columns(6)
-c1.metric("Doanh thu", style_big_number(total_revenue))
-c2.metric("Số đơn", style_big_number(total_orders))
-c3.metric("Số khách", style_big_number(total_customers))
-c4.metric("Giá trị TB/Đơn", f"{aov:,.0f}")
-c5.metric("Tỷ lệ mua lại", f"{repeat_rate:.1f}%")
-c6.metric("Doanh thu TB/Khách", f"{rev_per_customer:,.0f}")
+help_text = {
+    "Doanh thu": "Tổng order_value (gross_sales) trong khoảng thời gian đã lọc.",
+    "Số đơn": "Số order_id duy nhất trong khoảng thời gian đang xem.",
+    "Số khách": "Số customer_id duy nhất có phát sinh ít nhất 1 đơn.",
+    "Giá trị TB/Đơn": "Average Order Value = Doanh thu / Số đơn.",
+    "Tỷ lệ mua lại": "% khách có từ 2 đơn trở lên (khách mua ≥2 / tổng khách * 100).",
+    "Doanh thu TB/Khách": "Doanh thu trung bình trên mỗi khách = Doanh thu / Số khách."
+}
 
-st.markdown("""
-<div class="kpi-box">
-<b>Giải thích KPI</b><br>
-- <b>Doanh thu</b>: Tổng order_value.<br>
-- <b>Số đơn</b>: Đếm order_id duy nhất.<br>
-- <b>Số khách</b>: Đếm customer_id duy nhất.<br>
-- <b>Giá trị TB/Đơn</b>: Doanh thu / Số đơn.<br>
-- <b>Tỷ lệ mua lại</b>: % khách có ≥ 2 đơn.<br>
-- <b>Doanh thu TB/Khách</b>: Doanh thu / Số khách.<br>
-</div>
-""", unsafe_allow_html=True)
+c1, c2, c3, c4, c5, c6 = st.columns(6)
+c1.metric("Doanh thu", style_big_number(total_revenue), help=help_text["Doanh thu"])
+c2.metric("Số đơn", style_big_number(total_orders), help=help_text["Số đơn"])
+c3.metric("Số khách", style_big_number(total_customers), help=help_text["Số khách"])
+c4.metric("Giá trị TB/Đơn", f"{aov:,.0f}", help=help_text["Giá trị TB/Đơn"])
+c5.metric("Tỷ lệ mua lại", f"{repeat_rate:.1f}%", help=help_text["Tỷ lệ mua lại"])
+c6.metric("Doanh thu TB/Khách", f"{rev_per_customer:,.0f}", help=help_text["Doanh thu TB/Khách"])
 
 st.markdown("---")
 
-# ================== TABS ==================
-tab_overview, tab_category, tab_product, tab_customers, tab_heatmap, tab_adv_product, tab_download = st.tabs([
+# ================== TABS (ĐÃ ĐỔI THỨ TỰ: Heatmap SAU Phân tích nâng cao) ==================
+tab_overview, tab_category, tab_product, tab_customers, tab_adv_product, tab_heatmap, tab_download = st.tabs([
     "📈 Tổng quan",
     "🏷️ Ngành hàng",
     "📦 Sản phẩm",
     "👥 Khách hàng",
-    "⏱️ Heatmap",
     "🔬 Phân tích nâng cao",
+    "🗓️ Heatmap tuần",
     "⬇️ Xuất dữ liệu"
 ])
 
@@ -471,7 +477,6 @@ with tab_overview:
                 if worst_month is not None and not np.isnan(worst_month["Tăng trưởng %"]):
                     lines_growth.append(f"- Tháng giảm mạnh nhất: {worst_month['Tháng']} ({worst_month['Tăng trưởng %']:+.1f}%)")
 
-                # Top 2 tháng doanh thu cao nhất (chỉ khi chọn Doanh thu)  # NEW
                 if metric_choice == "Doanh thu":
                     curr_year_data = month_agg[month_agg["year"] == year_curr].copy()
                     if not curr_year_data.empty:
@@ -482,7 +487,7 @@ with tab_overview:
                             lines_growth.append(f"- Top tháng doanh thu {year_curr}: Tháng {m1} ({r1:,.0f})")
                         elif len(top2) == 2:
                             m1 = int(top2.iloc[0]["month"]); r1 = top2.iloc[0]["revenue"]
-                            m2 = int(top2.iloc[1]["month"]); r2 = top2.iloc[1]["revenue"]
+                            m2 = int(top2.iloc[1]["month"]); r2 = int(top2.iloc[1]["revenue"])
                             lines_growth.append(f"- Top 2 tháng doanh thu {year_curr}: Tháng {m1} ({r1:,.0f}), Tháng {m2} ({r2:,.0f})")
 
                 st.markdown(f"""
@@ -508,9 +513,10 @@ with tab_overview:
             ).properties(height=250, title="Phân bố giá trị đơn hàng"))
     st.altair_chart(hist, use_container_width=True)
 
-    # Phân tích nhanh
+    # -------- Phân tích nhanh & Gợi ý chiến lược song song ----------
     try:
         num_days = (df["order_date"].max() - df["order_date"].min()).days + 1
+        daily = daily  # đã có
         avg_rev_day = daily["revenue"].mean()
         peak_row = daily.loc[daily["revenue"].idxmax()]
         peak_date, peak_rev = peak_row["order_date"], peak_row["revenue"]
@@ -521,9 +527,9 @@ with tab_overview:
         start_current = df["order_date"].min()
         end_current = df["order_date"].max()
         period_len = (end_current - start_current).days + 1
-        prev_start = start_current - timedelta(days=period_len)
-        prev_end = start_current - timedelta(days=1)
-        raw_prev_mask = (raw_df["_date_parsed"] >= prev_start) & (raw_df["_date_parsed"] <= prev_end)
+        prev_start2 = start_current - timedelta(days=period_len)
+        prev_end2 = start_current - timedelta(days=1)
+        raw_prev_mask = (raw_df["_date_parsed"] >= prev_start2) & (raw_df["_date_parsed"] <= prev_end2)
         prev_df = raw_df.loc[raw_prev_mask].copy()
         prev_df["order_value_prev"] = prev_df["gross_sales"]
         prev_revenue = prev_df["order_value_prev"].sum() if not prev_df.empty else np.nan
@@ -531,7 +537,9 @@ with tab_overview:
         mean_ov = ov["Giá trị đơn"].mean()
         std_ov = ov["Giá trị đơn"].std()
         cv_ov = std_ov / mean_ov if mean_ov > 0 else np.nan
+        p90_median_ratio = (p90_order_value / median_order_value) if median_order_value > 0 else np.nan
 
+        # --- Nội dung phân tích (fact) ---
         lines = [
             f"- Khoảng ngày: {start_current.date()} → {end_current.date()} ({num_days} ngày).",
             f"- Doanh thu bình quân/ngày: {avg_rev_day:,.0f}.",
@@ -546,16 +554,77 @@ with tab_overview:
             lines.append(f"- Tăng trưởng so kỳ trước: {growth_pct:+.1f}% (Trước: {prev_revenue:,.0f}).")
         else:
             lines.append("- Thiếu dữ liệu để so sánh kỳ trước.")
-        if not np.isnan(top7_share) and top7_share > 45:
-            lines.append("- Gợi ý: Doanh thu tập trung cao → rà soát chương trình / mùa vụ.")
-        if not np.isnan(cv_ov) and cv_ov > 1.0:
-            lines.append("- Gợi ý: Biến động giá trị đơn cao → cân nhắc phân cụm.")
-        st.markdown(f"""
-        <div class="analysis-box">
-        <h4>📌 Phân tích nhanh</h4>
-        {'<br>'.join(lines)}
-        </div>
-        """, unsafe_allow_html=True)
+        if not np.isnan(p90_median_ratio):
+            lines.append(f"- P90/Median = {p90_median_ratio:.2f} (độ phân tán giá trị đơn).")
+
+        # --- Sinh gợi ý chiến lược (insight/action) ---
+        strategy_lines = []
+        # Phát hiện không có spike
+        if not np.isnan(top7_share) and top7_share < 25:
+            strategy_lines.append(f"Doanh thu phân bổ phẳng (Top 7 ngày chỉ {top7_share:.1f}%): gần như không có spike → tạo 'hero campaign' theo chủ đề để kích cầu (Flash Sale 1 ngày / Payday).")
+        elif not np.isnan(top7_share) and top7_share < 35:
+            strategy_lines.append(f"Phân bổ khá đều (Top 7 ngày {top7_share:.1f}%). Có thể chủ động tạo 1–2 đỉnh để tối ưu hiệu ứng FOMO.")
+        elif not np.isnan(top7_share) and top7_share > 55:
+            strategy_lines.append("Doanh thu quá tập trung vào ít ngày → phân tán rủi ro bằng mini-campaign vào các ngày yếu.")
+
+        # Tăng trưởng
+        if not np.isnan(growth_pct):
+            if growth_pct < 0:
+                strategy_lines.append("Giảm tăng trưởng: điều tra funnel (traffic nguồn, tỷ lệ chuyển đổi, repeat) + tái kích hoạt qua email/Zalo workflow.")
+            elif growth_pct < 10:
+                strategy_lines.append("Tăng trưởng nhẹ: tập trung tối ưu chuyển đổi & nâng AOV trước khi mở rộng chi phí quảng cáo.")
+            else:
+                strategy_lines.append("Tăng trưởng tốt: chuẩn hoá playbook kênh hiệu quả và scale ngân sách theo CPA mục tiêu.")
+        else:
+            strategy_lines.append("Chưa có baseline tăng trưởng → giữ log tuần & dựng phân tích hồi cứu để phân tách khách hàng quay lại so với khách hàng mới.")
+
+        # Repeat rate
+        if repeat_rate < 20:
+            strategy_lines.append("Repeat thấp (<20%): xây chuỗi onboarding + nhắc tái mua canh theo chu kỳ median, thêm incentive lần 2 (voucher giá trị nhỏ).")
+        elif repeat_rate < 40:
+            strategy_lines.append("Repeat trung bình: triển khai điểm thưởng / bundle ưu đãi để đẩy lần mua thứ 3.")
+        else:
+            strategy_lines.append("Repeat cao: chuyển trọng tâm sang tăng AOV (bundle cao cấp, gợi ý phụ kiện, referral).")
+
+        # Giá trị đơn thấp + khoảng P90
+        if median_order_value < 30 and p90_order_value < 80:
+            strategy_lines.append(f"Giá trị đơn thấp (Median {median_order_value:,.0f}, P90 {p90_order_value:,.0f}): thiết kế combo > {int(median_order_value*1.8)} để nâng cấp giỏ; highlight free-ship / ngưỡng quà.")
+        elif p90_median_ratio > 2.2:
+            strategy_lines.append(f"Khoảng cách P90/Median cao ({p90_median_ratio:.2f}): phân khúc khách high-value tạo ưu đãi riêng (VIP tier / early access).")
+        elif p90_median_ratio < 1.5:
+            strategy_lines.append("P90/Median thấp: bổ sung sản phẩm premium để mở trần chi tiêu.")
+
+        # Biến động AOV
+        if not np.isnan(cv_ov):
+            if cv_ov > 1.0:
+                strategy_lines.append("CV AOV cao: cá nhân hoá upsell theo segment (giá trị đơn lần gần nhất).")
+            elif cv_ov < 0.4:
+                strategy_lines.append("CV AOV thấp: dễ dự báo → thử tăng ngưỡng freeship hoặc bundle để kéo AOV lên lớp cao hơn.")
+
+        # AOV vs P90
+        if aov and p90_order_value and aov < p90_order_value * 0.45:
+            strategy_lines.append("AOV còn xa nhóm khách chi tiêu cao → thêm gợi ý mua kèm ở trang giỏ / sau thanh toán.")
+
+        # Tổng hợp nền tảng
+        strategy_lines.append("Phân tích cohort theo tháng nhằm nhận diện tỷ trọng đến từ khách hàng quay lại so với khách hàng mới.")
+        strategy_lines.append("Theo dõi tuần các chỉ số: New Customers, Repeat %, AOV, CAC (ngoại bảng).")
+
+        col_analysis, col_strategy = st.columns([4,6])
+        with col_analysis:
+            st.markdown(f"""
+            <div class="analysis-box">
+            <h4>📌 Phân tích nhanh</h4>
+            {'<br>'.join(lines)}
+            </div>
+            """, unsafe_allow_html=True)
+        with col_strategy:
+            st.markdown(f"""
+            <div class="strategy-box">
+            <h4>🎯 Gợi ý chiến lược tổng thể</h4>
+            {'<br>'.join('• ' + s for s in strategy_lines)}
+            </div>
+            """, unsafe_allow_html=True)
+
     except Exception as e:
         st.info(f"Không tạo được phân tích tự động (chi tiết: {e})")
 
@@ -706,27 +775,6 @@ with tab_customers:
         </div>
         """, unsafe_allow_html=True)
 
-# -------- Heatmap ----------
-with tab_heatmap:
-    st.subheader("Heatmap doanh thu theo giờ & thứ")
-    heat = compute_heatmap(df)
-    if not heat.empty:
-        heat["weekday_label"] = heat["weekday"].map({0:"Thứ 2",1:"Thứ 3",2:"Thứ 4",3:"Thứ 5",4:"Thứ 6",5:"Thứ 7",6:"CN"})
-        heat_vn = rename_for_display(heat, {
-            "hour":"Giờ","weekday_label":"Thứ","revenue":"Doanh thu","orders":"Số đơn"
-        })
-        chart_heat = (alt.Chart(heat_vn)
-                      .mark_rect()
-                      .encode(
-                          x=alt.X("Giờ:O", title="Giờ"),
-                          y=alt.Y("Thứ:O", title="Thứ"),
-                          color=alt.Color("Doanh thu:Q", scale=alt.Scale(scheme="blues"), title=""),
-                          tooltip=["Thứ","Giờ","Doanh thu:Q","Số đơn:Q"]
-                      ).properties(height=320))
-        st.altair_chart(chart_heat, use_container_width=True)
-    else:
-        st.warning("Không có dữ liệu để vẽ heatmap.")
-
 # -------- Phân tích nâng cao ----------
 with tab_adv_product:
     st.subheader("Phân tích nâng cao")
@@ -796,6 +844,48 @@ with tab_adv_product:
                    ).properties(height=350))
         st.altair_chart(scatter, use_container_width=True)
 
+# -------- Heatmap tuần ----------
+with tab_heatmap:
+    st.subheader("Heatmap theo ngày trong tuần")
+    weekday_df = compute_weekday_summary(df)
+    if not weekday_df.empty:
+        mapping_weekday = {0:"Thứ 2",1:"Thứ 3",2:"Thứ 4",3:"Thứ 5",4:"Thứ 6",5:"Thứ 7",6:"CN"}
+        weekday_df["Thứ"] = weekday_df["weekday"].map(mapping_weekday)
+        wd_vn = weekday_df.rename(columns={"revenue":"Doanh thu","orders":"Số đơn"})
+        # Biểu đồ: dùng bar + màu theo cường độ để giống "heat"
+        heat_chart = (alt.Chart(wd_vn)
+                      .mark_bar()
+                      .encode(
+                          x=alt.X("Thứ:N", sort=["Thứ 2","Thứ 3","Thứ 4","Thứ 5","Thứ 6","Thứ 7","CN"]),
+                          y=alt.Y("Doanh thu:Q", title="Doanh thu"),
+                          color=alt.Color("Doanh thu:Q", scale=alt.Scale(scheme="blues"), title=""),
+                          tooltip=["Thứ","Doanh thu:Q","Số đơn:Q"]
+                      ).properties(height=320, title=""))
+        st.altair_chart(heat_chart, use_container_width=True)
+
+        # Gợi ý tối ưu theo ngày tuần
+        worst_row = wd_vn.loc[wd_vn["Doanh thu"].idxmin()]
+        best_row = wd_vn.loc[wd_vn["Doanh thu"].idxmax()]
+        worst_day = worst_row["Thứ"]
+        best_day = best_row["Thứ"]
+        ratio = (best_row["Doanh thu"] / worst_row["Doanh thu"]) if worst_row["Doanh thu"] else np.nan
+        weekday_suggestions = []
+        weekday_suggestions.append(f"Ngày doanh thu thấp nhất: {worst_day} (≈ {worst_row['Doanh thu']:,.0f}). Cao nhất: {best_day} (≈ {best_row['Doanh thu']:,.0f}).")
+        if not np.isnan(ratio) and ratio >= 1.6:
+            weekday_suggestions.append(f"Chênh lệch cao (gấp {ratio:.1f} lần): ưu tiên triển khai chiến dịch cứu {worst_day}.")
+        weekday_suggestions.append(f"Đề xuất: đẩy flash sale / combo xả tồn / voucher ràng buộc tối thiểu vào {worst_day}.")
+        weekday_suggestions.append("A/B test thông điệp giá trị khác nhau cho ngày yếu (ví dụ: freeship ngưỡng thấp hơn).")
+        weekday_suggestions.append("Tận dụng retarget khách đã xem sản phẩm nhưng chưa mua trong 3 ngày gần nhất vào ngày yếu.")
+
+        st.markdown(f"""
+        <div class="weekday-box">
+        <b>Gợi ý tối ưu theo ngày trong tuần</b><br>
+        {'<br>'.join(weekday_suggestions)}
+        </div>
+        """, unsafe_allow_html=True)
+    else:
+        st.warning("Không đủ dữ liệu để xây dựng heatmap tuần.")
+
 # -------- Xuất dữ liệu ----------
 with tab_download:
     st.subheader("Xuất dữ liệu")
@@ -816,7 +906,6 @@ with tab_download:
         st.download_button("⬇️ Advanced product (full)", data=convert_df(adv_df_export), file_name="product_advanced.csv")
 
 st.markdown("---")
-# ============ FOOTER ============
 st.markdown(
     "<div style='text-align:left; color:#666; font-size:13px; margin-top:30px;'>© 2025 Đồ án tốt nghiệp lớp DL07_K306 - RFM Segmentation - Nhóm J</div>",
     unsafe_allow_html=True
