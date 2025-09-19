@@ -609,7 +609,7 @@ with tab_overview:
         strategy_lines.append("Phân tích cohort theo tháng nhằm nhận diện tỷ trọng đến từ khách hàng quay lại so với khách hàng mới.")
         strategy_lines.append("Theo dõi tuần các chỉ số: New Customers, Repeat %, AOV, CAC (ngoại bảng).")
 
-        col_analysis, col_strategy = st.columns([4.5,5.5])
+        col_analysis, col_strategy = st.columns([1,1])
         with col_analysis:
             st.markdown(f"""
             <div class="analysis-box">
