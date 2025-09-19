@@ -63,19 +63,19 @@ features = [
     {
         "title": "Phân tích R-F-M",
         "img": IMG_RFM,
-        "text": "Phân nhóm dựa trên Recency, Frequency, Monetary\nƯu tiên chăm sóc nhóm giá trị & ngăn khách hàng rời bỏ sớm",
+        "text": "Phân nhóm dựa trên Recency, Frequency, Monetary.\nƯu tiên chăm sóc nhóm giá trị & ngăn khách hàng rời bỏ sớm",
         "tag": "RFM"
     },
     {
-        "title": "Tập luật",
+        "title": "Tập luật (Association Rule)",
         "img": IMG_RULE,
-        "text": "Khai phá các nhóm khách hàng\nXây dựng chiến lược kích cầu, khuyến mãi phù hợp với từng người",
+        "text": "Khai phá mặt hàng thường đi kèm trong đơn.\nTạo combo, tối ưu bán kèm & đề xuất sản phẩm",
         "tag": "TẬP LUẬT"
     },
     {
         "title": "Phân cụm theo Gaussian Mixture Model",
         "img": IMG_CLUSTER,
-        "text": "Nhóm khách tương đồng hành vi mua sắm\nKhám phá phân khúc & thiết kế chiến dịch chính xác",
+        "text": "Nhóm khách tương đồng hành vi không cần nhãn.\nKhám phá phân khúc & thiết kế chiến dịch chính xác",
         "tag": "GMM"
     },
 ]
@@ -307,9 +307,8 @@ st.markdown(
     """
     <div class="hero-banner">
       <div class="hero-content">
-        <h1 class="hero-title">Nền tảng phân tích khách hàng dành cho các cửa hàng bán lẻ</h1>
-        <div class="hero-sub">Khai phá hành vi & giá trị khách hàng với RFM, phân cụm, phân tích luật
-Làm nền tảng cho chiến lược giữ chân, tăng giá trị vòng đời khách hàng và tối ưu ngân sách</div>
+        <h1 class="hero-title">Customer Intelligence Platform</h1>
+        <div class="hero-sub">Nền tảng phân tích khách hàng dành cho các cửa hàng bán lẻ</div>
         <div class="hero-chips">
           <span>RFM</span>
           <span>Gaussian Mixture</span>
