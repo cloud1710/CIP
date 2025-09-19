@@ -56,9 +56,12 @@ Mục tiêu: hỗ trợ đội Marketing / CRM / Data vận hành chiến lượ
 │   └── train_gmm.py          # Train mô hình GMM hoặc các pipeline
 ├── src/
 │   ├── cluster_profile.py
+│   ├── combo_recommender.py
 │   ├── __init__.py
 │   ├── model_io.py
 │   ├── plot_rfm.py
+│   ├── rfm_base.py
+│   ├── rfm_enrichment.py
 │   ├── rfm_gmm.py
 │   ├── rfm_kmeans.py
 │   ├── rfm_labeling.py
