@@ -6,6 +6,20 @@ import plotly.graph_objects as go
 import plotly.express as px
 import random
 
+# ======================
+# CONFIG & CONSTANTS
+# ======================
+st.set_page_config(page_title="04 - Customer", layout="wide")
+DATA_PATH = Path("data/orders_full.csv")
+GMM_DIR = Path("models/gmm/gmm_rfm_v1")
+RADAR_TARGET_HEIGHT = 200
+HISTORY_CHART_HEIGHT = 230
+SECTION_GAP = 36
+MIN_SUPPORT_ORDERS = 5
+
+# ======================
+# IMPORT BUSINESS MODULES
+# ======================
 from src.rfm_base import load_orders, build_rfm_snapshot
 from src.rfm_rule_scoring import compute_rfm_scores
 from src.rfm_labeling import apply_rfm_level
@@ -14,7 +28,6 @@ try:
     from src.combo_recommender import (
         prepare_line_items,
         build_cooccurrence,
-        build_customer_profile,
         recommend_combos_for_customer
     )
     _combo_available = True
@@ -33,15 +46,9 @@ except Exception:
     def recommend_actions(rfm_level: str, cluster=None, monetary=None):
         return {"goal": "N/A", "tactics": [], "notes": []}
 
-st.set_page_config(page_title="04 - Customer", layout="wide")
-
-DATA_PATH = Path("data/orders_full.csv")
-GMM_DIR = Path("models/gmm/gmm_rfm_v1")
-
-RADAR_TARGET_HEIGHT = 200
-HISTORY_CHART_HEIGHT = 230
-SECTION_GAP = 36
-
+# ======================
+# SEGMENT CATALOG
+# ======================
 segment_catalog = {
     "LOST":{"definition":"Khách hàng lâu không quay lại, Recency cao vượt ngưỡng.","base_goal":"Tái kích hoạt hoặc xác định lý do rời bỏ.","base_strategies":["Win-back voucher / quà sinh nhật","Flash sale tái kích hoạt","Khảo sát lý do rời bỏ"],"kpi_focus":["Reactivation Rate","Open Rate","Return Purchase"],"upgrade_path":"Chuyển thành ACTIVE rồi REGULARS / LOYAL","risk_signals":["Recency cao","Frequency giảm","Không phản hồi chiến dịch"]},
     "REGULARS":{"definition":"Khách mua đều đặn, hành vi ổn định.","base_goal":"Duy trì tần suất và tăng giá trị đơn hàng.","base_strategies":["Ưu đãi duy trì nhẹ","Theo dõi nâng cấp lên LOYAL / BIG SPENDER","Tối ưu trải nghiệm"],"kpi_focus":["Repeat Rate","AOV","Frequency"],"upgrade_path":"Nâng lên LOYAL hoặc BIG SPENDER","risk_signals":["Tần suất giảm tuần/tháng","Giảm giá trị đơn"]},
@@ -54,6 +61,9 @@ segment_catalog = {
     "OTHER":{"definition":"Nhóm nhỏ / chưa rõ đặc trưng.","base_goal":"Thu thập thêm dữ liệu hành vi.","base_strategies":["Theo dõi thêm hành vi","Điều chỉnh tiêu chí phân nhóm","Kiểm soát chi phí chăm sóc"],"kpi_focus":["Data Completeness"],"upgrade_path":"Phân bổ lại sang nhóm chính","risk_signals":["Khối lượng thấp","Nhiễu nhãn"]}
 }
 
+# ======================
+# CACHE BUILDERS
+# ======================
 @st.cache_data
 def build_rfm():
     raw = load_orders(DATA_PATH)
@@ -76,12 +86,11 @@ def join_clusters(rfm_df: pd.DataFrame, labels_df: pd.DataFrame) -> pd.DataFrame
         else:
             raise ValueError("labels_df không có customer_id")
     if "customer_id" in rfm_df.columns:
-        merged = rfm_df.set_index("customer_id").join(lbl, how="left")
-        return merged.reset_index()
+        return rfm_df.set_index("customer_id").join(lbl, how="left").reset_index()
     return rfm_df.join(lbl, how="left")
 
 @st.cache_data(show_spinner=False)
-def compute_combo_rules(raw_orders: pd.DataFrame, min_support_orders: int = 5):
+def compute_combo_rules(raw_orders: pd.DataFrame, min_support_orders: int = MIN_SUPPORT_ORDERS):
     if not _combo_available:
         return pd.DataFrame(), {}
     df = raw_orders.copy()
@@ -98,13 +107,16 @@ def compute_combo_rules(raw_orders: pd.DataFrame, min_support_orders: int = 5):
         return pd.DataFrame(), {"status":"no_data"}
     try:
         line = prepare_line_items(df, product_col="product_name")
-        rules, prod_orders, total_orders = build_cooccurrence(
+        rules, _, total_orders = build_cooccurrence(
             line, product_col="product_name", min_support_orders=min_support_orders
         )
         return rules, {"status":"ok","total_orders":int(total_orders)}
     except Exception as e:
         return pd.DataFrame(), {"status":"error","error":str(e)}
 
+# ======================
+# LOAD DATA
+# ======================
 try:
     orders, rfm_base = build_rfm()
 except Exception as e:
@@ -131,19 +143,21 @@ if "cluster_gmm" not in rfm_all.columns:
     st.stop()
 
 with st.spinner("Đang tính toán gợi ý combo..."):
-    combo_rules, combo_meta = compute_combo_rules(orders, min_support_orders=5)
+    combo_rules, combo_meta = compute_combo_rules(orders, min_support_orders=MIN_SUPPORT_ORDERS)
 
+# ======================
+# SESSION & INPUT
+# ======================
 if "initial_customer_id" not in st.session_state:
     st.session_state.initial_customer_id = random.randint(1000, 5000)
 if "customer_id_input" not in st.session_state:
     st.session_state.customer_id_input = str(st.session_state.initial_customer_id)
 
 st.title("👤 Phân tích Khách hàng chuyên sâu")
-st.markdown("Nhập ID khách hàng (1000–5000). Lần đầu trang tự chọn ngẫu nhiên.")
+st.markdown("Nhập ID khách hàng (1000–5000)")
 
 st.text_input("Customer ID", key="customer_id_input", max_chars=5, help="Nhập ID hợp lệ trong khoảng 1000–5000")
 input_id_raw = st.session_state.customer_id_input.strip()
-
 if not input_id_raw or not input_id_raw.isdigit():
     st.stop()
 input_id = int(input_id_raw)
@@ -160,11 +174,11 @@ row = cust_df.iloc[0]
 cluster_id = row.get("cluster_gmm", None)
 
 cust_id_col = next((c for c in ["member_number","customer_id"] if c in orders.columns), None)
-if cust_id_col:
-    cust_orders = orders[orders[cust_id_col].astype(str) == str(row["customer_id"])].copy()
-else:
-    cust_orders = pd.DataFrame()
+cust_orders = orders[orders[cust_id_col].astype(str) == str(row["customer_id"])].copy() if cust_id_col else pd.DataFrame()
 
+# ======================
+# COMBO RECOMMENDATIONS
+# ======================
 combo_recs = []
 if _combo_available and not combo_rules.empty:
     try:
@@ -188,6 +202,9 @@ if _combo_available and not combo_rules.empty:
     except Exception:
         combo_recs = []
 
+# ======================
+# MEDIANS & QUALITATIVE
+# ======================
 rec_median = rfm_all["Recency"].median()
 freq_median = rfm_all["Frequency"].median()
 mon_median = rfm_all["Monetary"].median()
@@ -212,8 +229,12 @@ q_rec = qualitative_recency(row["Recency"], rec_median)
 q_freq = qualitative_freq(row["Frequency"], freq_median)
 q_mon = qualitative_mon(row["Monetary"], mon_median)
 
-def fetch_cluster_row(profile, cid):
-    if cid is None or pd.isna(cid): return None
+# ======================
+# CLUSTER UTILITIES
+# ======================
+def fetch_cluster_row(profile: pd.DataFrame, cid):
+    if cid is None or pd.isna(cid): 
+        return None
     prof = profile.copy()
     if isinstance(prof.columns, pd.MultiIndex):
         prof.columns = ["_".join(map(str, c)) for c in prof.columns]
@@ -248,6 +269,9 @@ def cluster_deviation_text():
 
 cluster_dev_txt = cluster_deviation_text()
 
+# ======================
+# SEGMENT & PLAN
+# ======================
 seg_key = row["RFM_Level"] if row["RFM_Level"] in segment_catalog else "OTHER"
 seg_info = segment_catalog.get(seg_key, segment_catalog["OTHER"])
 
@@ -270,6 +294,7 @@ def derive_personalized_plan(row, seg_info, cluster_dev_txt):
         dynamic.append("Tận dụng tương tác gần: bundle cao cấp / upsell")
     if row["Monetary"] > 2*mon_median and row["Frequency"] < freq_median:
         dynamic.append("Giảm rào cản mua lại: gợi ý sản phẩm nhỏ để tạo nhịp")
+
     mod_rec = recommend_actions(
         rfm_level=row["RFM_Level"],
         cluster=int(cluster_id) if cluster_id is not None and pd.notna(cluster_id) else None,
@@ -277,10 +302,11 @@ def derive_personalized_plan(row, seg_info, cluster_dev_txt):
     )
     combined = base_strategies + mod_rec.get("tactics", []) + dynamic
     combined = [t for t in combined if t and "(Missing recommendation module)" not in t]
-    seen=set(); final=[]
+    seen = set(); final = []
     for t in combined:
         if t not in seen:
             final.append(t); seen.add(t)
+
     def classify(txt):
         lower = txt.lower()
         if any(k in lower for k in ["reactivation","win-back","tái","kích hoạt"]): return "Reactivation"
@@ -289,19 +315,23 @@ def derive_personalized_plan(row, seg_info, cluster_dev_txt):
         if any(k in lower for k in ["onboarding","đơn hàng 2","mới"]): return "Onboarding"
         if any(k in lower for k in ["ưu đãi","duy trì","giữ chân","retention"]): return "Retention"
         return "General"
+
     def priority(txt):
         cat = classify(txt)
         weight = {
             "Reactivation": 90 if seg_key in ("LOST","LIGHT") else 70,
             "Onboarding": 85 if seg_key in ("NEW","ACTIVE") else 60,
             "Monetize": 80 if seg_key in ("BIG SPENDER","STARS","LOYAL") else 55,
-            "Growth": 75, "Retention": 70, "General": 55
+            "Growth": 75,
+            "Retention": 70,
+            "General": 55
         }[cat]
-        if "bundle" in txt.lower(): weight +=5
-        if "survey" in txt.lower() or "khảo sát" in txt.lower(): weight -=5
+        if "bundle" in txt.lower(): weight += 5
+        if "survey" in txt.lower() or "khảo sát" in txt.lower(): weight -= 5
         return min(100, weight)
-    enriched = [{"tactic":t,"category":classify(t),"priority":priority(t)} for t in final]
-    enriched = sorted(enriched, key=lambda x:x["priority"], reverse=True)
+
+    enriched = [{"tactic": t, "category": classify(t), "priority": priority(t)} for t in final]
+    enriched = sorted(enriched, key=lambda x: x["priority"], reverse=True)
     goal = mod_rec.get("goal", base_goal)
     if goal == "N/A": goal = base_goal
     return {
@@ -310,25 +340,32 @@ def derive_personalized_plan(row, seg_info, cluster_dev_txt):
         "upgrade_path": upgrade_path,
         "risk_signals": risk_signals,
         "tactics": enriched,
-        "notes": [n for n in mod_rec.get("notes",[]) if "(Missing recommendation" not in n]
+        "notes": [n for n in mod_rec.get("notes", []) if "(Missing recommendation" not in n]
     }
 
 personalized_plan = derive_personalized_plan(row, seg_info, cluster_dev_txt)
 
+# ======================
+# COLORS & LABELS
+# ======================
 DEFAULT_SEGMENT_COLORS = {
     "STARS":"#1b7837","BIG SPENDER":"#00429d","LOYAL":"#73a2c6",
     "ACTIVE":"#4daf4a","NEW":"#ffcc00","LIGHT":"#f29e4c",
     "REGULARS":"#9e9e9e","LOST":"#d73027","OTHER":"#607d8b"
 }
 seg_color = DEFAULT_SEGMENT_COLORS.get(seg_key, "#607d8b")
-
 marketing_name = None; label_desc = None
 if profile_df is not None and cluster_id is not None and pd.notna(cluster_id):
-    clrow = fetch_cluster_row(profile_df, cluster_id)
-    if clrow is not None:
-        marketing_name = clrow.get("cluster_marketing_name")
-        label_desc = clrow.get("cluster_label_desc")
+    cl_profile_row = fetch_cluster_row(profile_df, cluster_id)
+    if cl_profile_row is not None:
+        marketing_name = cl_profile_row.get("cluster_marketing_name")
+        label_desc = cl_profile_row.get("cluster_label_desc")
+else:
+    cl_profile_row = None
 
+# ======================
+# CSS (khôi phục pseudo tooltip + cấu trúc scroll mới)
+# ======================
 css_raw = """
 <style>
 :root {
@@ -337,36 +374,27 @@ css_raw = """
   --card-bg:#ffffff;
   --card-bg-soft:#f5f8fb;
   --card-border:#d2dde7;
-  --box-strong:#edf4fb;
-  /* Hoán đổi màu: cat/prod -> xanh #eef9f0, panel-green -> #fff7ec */
   --cat-bg:#eef9f0;
   --prod-bg:#eef9f0;
   --panel-green:#fff7ec;
 }
-
 .section-row { margin-bottom: var(--section-gap); }
-.section-row:last-of-type { margin-bottom: 0; }
-
 .segment-header {
   border-radius:14px; padding:18px 22px 14px 22px; margin:6px 0 18px 0;
   display:flex; align-items:center; justify-content:space-between;
   box-shadow:0 2px 6px rgba(0,0,0,0.07); color:#fff;
 }
-.segment-header h2 { font-size:26px; font-weight:700; margin:0; color:#fff }
+.segment-header h2 { font-size:26px; font-weight:700; margin:0; color:#fff}
 .segment-badge { font-size:16px; font-weight:600; padding:6px 16px;
   background:rgba(255,255,255,0.18); border:1px solid rgba(255,255,255,0.38); border-radius:24px;}
-
 .metric-card,.cluster-card {
   background:var(--card-bg-soft); border:1px solid var(--card-border);
   border-radius:14px; box-shadow:0 1px 3px rgba(0,0,0,0.05);
 }
 .metric-card { padding:18px 20px; display:flex; flex-direction:column; gap:14px; }
-.metric-card h4,
-.cluster-card h4 { margin:0; font-size:19px; font-weight:700; color:var(--accent-blue); } /* tăng lên 19px */
-
+.metric-card h4,.cluster-card h4 { margin:0; font-size:19px; font-weight:700; color:var(--accent-blue); }
 .rfm-flex { display:flex; gap:16px; }
 .rfm-col { flex:1; display:flex; flex-direction:column; gap:10px; }
-
 .metric-item {
   background:var(--card-bg); border:1px solid var(--card-border); border-radius:11px;
   padding:10px 10px 8px 10px; text-align:center; display:flex; flex-direction:column;
@@ -374,7 +402,6 @@ css_raw = """
 }
 .metric-item span.label { font-size:12px; color:#4372a3; font-weight:500; margin-bottom:4px; }
 .metric-item span.value { font-size:20px; font-weight:600; color:#0f4f85; line-height:1.05; }
-
 .cluster-card { padding:16px 18px; display:flex; flex-direction:column; gap:14px; }
 .cluster-grid { display:grid; grid-template-columns:repeat(2,1fr); gap:10px; }
 .c-box { background:var(--card-bg); border:1px solid var(--card-border); border-radius:10px;
@@ -384,71 +411,104 @@ css_raw = """
 .c-box .label { font-size:12px; color:#4372a3; font-weight:500; margin-bottom:4px; }
 .c-box .value { font-size:20px; font-weight:600; color:#0f4f85; line-height:1.05; }
 .c-desc .value { font-size:16px; font-weight:600; color:#0f4f85; }
-
 .blue-box,.care-box,.combo-box {
   border:1px solid var(--card-border); border-radius:16px;
-  background:var(--panel-green) !important;  /* sau hoán đổi = #fff7ec */
+  background:var(--panel-green) !important;
   font-size:14.6px; line-height:1.5; box-shadow:0 1px 4px rgba(0,0,0,0.05);
   padding:16px 18px 14px 18px;
   display:flex; flex-direction:column;
+  /* QUAN TRỌNG: bỏ overflow ở lớp ngoài để tooltip không bị cắt */
+  overflow:visible;
+  position:relative;
 }
-
+.box-scroll-inner {
+  max-height:520px;
+  overflow:auto;
+  padding-right:4px;
+  scrollbar-width:thin;
+}
+.box-scroll-inner::-webkit-scrollbar { width:8px; }
+.box-scroll-inner::-webkit-scrollbar-thumb { background:#c5d4df; border-radius:4px; }
 .analysis-box {
   background:#edf4fb !important;
   padding:20px 22px 18px 22px;
-  font-size:15px;
-  line-height:1.55;
+  font-size:15px; line-height:1.55;
 }
-
 .analysis-box h4,
 .blue-box h4,
 .care-box h5,
 .combo-box h5 {
   margin:0 0 12px 0; font-size:19px; font-weight:700; color:var(--accent-blue);
 }
-
 .history-title {
   font-weight:700; margin:4px 0 10px 0; font-size:20px; color:var(--accent-blue);
 }
-
 .pref-box {
   border:1px solid var(--card-border); border-radius:16px;
   padding:20px 22px 18px 22px; font-size:15.2px; line-height:1.55;
-  box-shadow:0 1px 4px rgba(0,0,0,0.05); display:flex; flex-direction:column;
+  box-shadow:0 1px 4px rgba(0,0,0,0.05); display:flex; flex-direction:column; height:100%;
 }
-.pref-box h5 {
-  margin:0 0 12px 0; font-size:20px; font-weight:700; color:var(--accent-blue);
-}
+.pref-box h5 { margin:0 0 12px 0; font-size:20px; font-weight:700; color:var(--accent-blue); }
 .pref-box.cat { background:var(--cat-bg); }
 .pref-box.prod { background:var(--prod-bg); }
-
 .pref-box ul { margin:0; padding-left:20px; }
 .pref-box li { margin:4px 0 6px 0; }
-
 .combo-box ul { margin:0; padding-left:20px; }
 .combo-box li { margin:4px 0 6px 0; }
 .combo-empty { font-style:italic; color:#666; }
-
 .priority-badge {
   font-size:11px; padding:3px 7px; border-radius:10px;
   background:#ffffff; border:1px solid #1976d2; color:#1976d2;
   margin-left:6px; font-weight:500;
 }
-.pill {
+.pill, .care-pill {
   display:inline-block; background:#1976d2; color:#fff;
   padding:4px 10px 5px 10px; border-radius:16px; font-size:12px;
   font-weight:600; margin:3px 6px 6px 0; line-height:1.05;
-  position:relative; cursor:help;
+  position:relative; cursor:help; white-space:nowrap;
 }
-.pill[data-tip]:hover::after {
-  content:attr(data-tip); position:absolute; left:50%; transform:translateX(-50%);
-  bottom:110%; background:#0d4d92; color:#fff; padding:8px 10px;
-  border-radius:8px; width:240px; font-size:11.5px; line-height:1.4;
-  z-index:30; box-shadow:0 4px 12px rgba(0,0,0,0.25);
+/* Tooltip pseudo */
+.pill[data-tip]:hover::after,
+.care-pill[data-tip]:hover::after {
+  content:attr(data-tip);
+  position:absolute;
+  left:50%; bottom:110%;
+  transform:translateX(-50%);
+  background:#0d4d92; color:#fff; padding:8px 10px;
+  border-radius:8px; width:max-content; max-width:260px;
+  font-size:11.5px; line-height:1.4;
+  z-index:999;
+  box-shadow:0 4px 12px rgba(0,0,0,0.25);
+  pointer-events:none;
 }
-.pill[data-tip]:hover::before {
-  content:""; position:absolute; left:50%; transform:translateX(-50%);
-  bottom:100%; border:6px solid transparent; border-top-color:#0d4d92;
+.pill[data-tip]:hover::before,
+.care-pill[data-tip]:hover::before {
+  content:"";
+  position:absolute;
+  left:50%; bottom:100%;
+  transform:translateX(-50%);
+  border:6px solid transparent;
+  border-top-color:#0d4d92;
+  z-index:1000;
+  pointer-events:none;
+}
+/* Nếu quá sát trái (heuristic: dùng data-align-left class nếu muốn) */
+.pill.align-left[data-tip]:hover::after,
+.care-pill.align-left[data-tip]:hover::after {
+  left:0; transform:translateX(0);
+}
+.pill.align-left[data-tip]:hover::before,
+.care-pill.align-left[data-tip]:hover::before {
+  left:15px; transform:none;
+}
+/* Nếu quá sát phải (dùng class align-right nếu cần) */
+.pill.align-right[data-tip]:hover::after,
+.care-pill.align-right[data-tip]:hover::after {
+  left:auto; right:0; transform:translateX(0);
+}
+.pill.align-right[data-tip]:hover::before,
+.care-pill.align-right[data-tip]:hover::before {
+  left:auto; right:15px; transform:none;
 }
 .cat-Reactivation { background:#d32f2f !important; }
 .cat-Onboarding { background:#0288d1 !important; }
@@ -457,79 +517,17 @@ css_raw = """
 .cat-Retention { background:#ef6c00 !important; }
 .cat-General { background:#546e7a !important; }
 .risk-pill { background:#b71c1c !important; }
-.note-hover { font-size:12px; color:#555; margin:4px 0 0 2px; }
-
-.care-pill {
-  display:inline-block; background:#0d4d92; color:#fff; padding:4px 10px 5px 10px;
-  border-radius:16px; font-size:12px; font-weight:600; margin:3px 6px 6px 0;
-  line-height:1.05; position:relative; cursor:help;
+#history-row > div[data-testid="column"] > div {
+  height:100%; display:flex; flex-direction:column;
 }
-.care-pill[data-tip]:hover::after {
-  content:attr(data-tip); position:absolute; left:50%; transform:translateX(-50%);
-  bottom:110%; background:#0d4d92; color:#fff; padding:8px 10px;
-  border-radius:8px; width:220px; font-size:11.5px; line-height:1.4; z-index:30;
-}
-.care-pill[data-tip]:hover::before {
-  content:""; position:absolute; left:50%; transform:translateX(-50%);
-  bottom:100%; border:6px solid transparent; border-top-color:#0d4d92;
-}
-
-.care-table { width:100%; border-collapse:collapse; margin-top:6px; }
-.care-table th, .care-table td {
-  border:1px solid #d2dde7; padding:6px 8px; font-size:13px;
-  text-align:left; vertical-align:top;
-}
-.care-table th { background:#f1f6fb; font-weight:600; color:#0d4d92; }
-
-.pref-inline {
-  display:grid;
-  grid-template-columns:repeat(auto-fit, minmax(260px, 1fr));
-  gap:16px;
-  align-items:stretch;
-  margin:0;
-}
-.pref-inline > * { min-height:100%; }
-
-@media (max-width:900px) {
-  .pref-inline { grid-template-columns:1fr; }
-}
-
-.equal-box { min-height:520px; }
-
-#strategy-row > div[data-testid="column"] > div {
-  height:100%;
-  display:flex;
-  flex-direction:column;
-}
-#strategy-row .equal-box {
-  flex:1;
-  display:flex;
-  flex-direction:column;
-}
-
-.blue-box, .care-box, .combo-box {
-  max-height:520px;
-  overflow:auto;
-  scrollbar-width:thin;
-}
-.blue-box::-webkit-scrollbar,
-.care-box::-webkit-scrollbar,
-.combo-box::-webkit-scrollbar {
-  width:8px;
-}
-.blue-box::-webkit-scrollbar-thumb,
-.care-box::-webkit-scrollbar-thumb,
-.combo-box::-webkit-scrollbar-thumb {
-  background:#c5d4df;
-  border-radius:4px;
-}
-
 .radar-wrap { background:transparent !important; border:none !important; box-shadow:none !important; }
 </style>
 """
-css_style = css_raw.replace("__GAP__", str(SECTION_GAP))
-st.markdown(css_style, unsafe_allow_html=True)
+st.markdown(css_raw.replace("__GAP__", str(SECTION_GAP)), unsafe_allow_html=True)
 
+# ======================
+# HEADER
+# ======================
 st.markdown(
     f"""
     <div class="segment-header" style="background:{seg_color};">
@@ -540,6 +538,9 @@ st.markdown(
     unsafe_allow_html=True
 )
 
+# ======================
+# RFM & CLUSTER
+# ======================
 st.markdown('<div class="section-row" id="rfm-row">', unsafe_allow_html=True)
 col_left, col_right = st.columns([5,5])
 with col_left:
@@ -562,11 +563,10 @@ with col_left:
           </div>
       </div>
     """, unsafe_allow_html=True)
-
 with col_right:
     cluster_col, radar_col = st.columns([3,2])
     cluster_conf_val = row["cluster_confidence"] if "cluster_confidence" in row and pd.notna(row["cluster_confidence"]) else None
-    full_desc = marketing_name or label_desc or "—"
+    full_desc = (marketing_name or label_desc or "—")
     with cluster_col:
         st.markdown(f"""
           <div class="cluster-card">
@@ -610,18 +610,20 @@ with col_right:
         st.plotly_chart(make_rfm_radar(int(row["R"]), int(row["F"]), int(row["M"])), use_container_width=True)
 st.markdown('</div>', unsafe_allow_html=True)
 
+# ======================
+# ANALYSIS
+# ======================
 def build_analysis_points():
     pct_rec_better = (rfm_all["Recency"] < row["Recency"]).mean()*100
     pct_freq = (rfm_all["Frequency"] <= row["Frequency"]).mean()*100
     pct_mon = (rfm_all["Monetary"] <= row["Monetary"]).mean()*100
-    items=[]
-    cluster_name_line=""
-    if marketing_name: cluster_name_line=f" (Cluster: {marketing_name})"
-    elif label_desc: cluster_name_line=f" (Cluster: {label_desc})"
-    items.append(f"Segment: <b>{seg_key}</b>{cluster_name_line} – {seg_info['definition']}")
-    items.append(f"Recency: {int(row['Recency'])} ngày → {q_rec} (Median {int(rec_median)}; {pct_rec_better:.1f}% khách mới hơn).")
-    items.append(f"Frequency: {int(row['Frequency'])} → {q_freq} (Median {freq_median:.1f}; ~{pct_freq:.1f}%).")
-    items.append(f"Monetary: {row['Monetary']:.0f} → {q_mon} (Median {mon_median:.0f}; ~{pct_mon:.1f}%).")
+    cluster_name_line = f" (Cluster: {marketing_name})" if marketing_name else (f" (Cluster: {label_desc})" if label_desc else "")
+    items = [
+        f"Segment: <b>{seg_key}</b>{cluster_name_line} – {seg_info['definition']}",
+        f"Recency: {int(row['Recency'])} ngày → {q_rec} (Median {int(rec_median)}; {pct_rec_better:.1f}% khách mới hơn).",
+        f"Frequency: {int(row['Frequency'])} → {q_freq} (Median {freq_median:.1f}; ~{pct_freq:.1f}%).",
+        f"Monetary: {row['Monetary']:.0f} → {q_mon} (Median {mon_median:.0f}; ~{pct_mon:.1f}%)."
+    ]
     if cluster_dev_txt:
         items.append(f"So với cụm (tóm tắt): {cluster_dev_txt}.")
     if seg_key in ("LOST","LIGHT"):
@@ -637,6 +639,9 @@ st.markdown('<div class="section-row" id="analysis-row">', unsafe_allow_html=Tru
 st.markdown(f"<div class='analysis-box'><h4>Phân tích đặc điểm</h4>{analysis_html}</div>", unsafe_allow_html=True)
 st.markdown('</div>', unsafe_allow_html=True)
 
+# ======================
+# PREFERENCES
+# ======================
 def icon_for_category(cat: str) -> str:
     CATEGORY_ICONS = {
         "Beverages":"🥤","Drink":"🥤","Food":"🍱","Snack":"🍪","Personal Care":"🧴",
@@ -644,7 +649,7 @@ def icon_for_category(cat: str) -> str:
         "Device":"🔌","Fashion":"👕","Apparel":"👕","Health":"💊","Book":"📚",
         "Sports":"🏃","Baby":"🍼","Pet":"🐾"
     }
-    if not isinstance(cat,str) or not cat.strip():
+    if not isinstance(cat, str) or not cat.strip():
         return "📦"
     lower = cat.lower()
     for k, ic in CATEGORY_ICONS.items():
@@ -652,12 +657,12 @@ def icon_for_category(cat: str) -> str:
             return ic
     return "📦"
 
-def extract_customer_preferences(cust_orders: pd.DataFrame, top_n: int = 5):
+def extract_customer_preferences(cust_orders: pd.DataFrame, top_n: int = 6):
     if cust_orders is None or cust_orders.empty:
         return [], []
     prod_col = next((c for c in ["product_name","sku_name","product_title","product_id"] if c in cust_orders.columns), None)
     cat_col = next((c for c in ["category","category_name","department","cat_name"] if c in cust_orders.columns), None)
-    top_products=[]; top_categories=[]
+    top_products, top_categories = [], []
     if prod_col:
         prod_rank = cust_orders.groupby(prod_col).size().sort_values(ascending=False).head(top_n)
         top_products = list(map(str, prod_rank.index))
@@ -668,37 +673,41 @@ def extract_customer_preferences(cust_orders: pd.DataFrame, top_n: int = 5):
 
 top_products, top_categories = extract_customer_preferences(cust_orders, top_n=6)
 
-combo_lines=[]
+# ======================
+# COMBO LINES
+# ======================
+combo_lines = []
 if combo_recs:
-    seen_pairs=set()
+    seen_pairs = set()
     for r_ in combo_recs:
-        a=r_["antecedent"]; b=r_["consequent"]
-        if (a,b) not in seen_pairs:
-            seen_pairs.add((a,b))
+        a = r_["antecedent"]; b = r_["consequent"]
+        if (a, b) not in seen_pairs:
+            seen_pairs.add((a, b))
             combo_lines.append(f"<li>{a} + {b}</li>")
 
+# ======================
+# HISTORY + PREFS
+# ======================
 st.markdown('<div class="section-row" id="history-row">', unsafe_allow_html=True)
-bh_left, bh_right = st.columns([7,5])
-with bh_left:
+hist_col, cat_col, prod_col = st.columns([56, 20, 20])
+with hist_col:
     st.markdown("<div class='history-title'>Lịch sử mua hàng</div>", unsafe_allow_html=True)
     if not cust_orders.empty and "date" in cust_orders.columns:
         cust_orders["_dt"] = pd.to_datetime(cust_orders["date"], errors="coerce")
         cust_orders["_day"] = cust_orders["_dt"].dt.date
         value_col = "gross_sales" if "gross_sales" in cust_orders.columns else None
         if value_col:
-            daily = (cust_orders
-                     .groupby("_day", as_index=False)
-                     .agg(metric_val=(value_col, "sum"),
-                          orders=("order_id", "nunique")))
-            daily.rename(columns={"_day": "Date"}, inplace=True)
+            daily = cust_orders.groupby("_day", as_index=False).agg(
+                metric_val=(value_col, "sum"),
+                orders=("order_id", "nunique")
+            ).rename(columns={"_day": "Date"})
             daily["Date"] = pd.to_datetime(daily["Date"])
             fig_hist = px.line(daily, x="Date", y="metric_val", template="plotly_white")
             fig_hist.update_layout(yaxis_title="Doanh thu", xaxis_title="", height=HISTORY_CHART_HEIGHT)
         else:
-            daily = (cust_orders
-                     .groupby("_day", as_index=False)
-                     .agg(orders=("order_id", "nunique")))
-            daily.rename(columns={"_day": "Date"}, inplace=True)
+            daily = cust_orders.groupby("_day", as_index=False).agg(
+                orders=("order_id", "nunique")
+            ).rename(columns={"_day": "Date"})
             daily["Date"] = pd.to_datetime(daily["Date"])
             fig_hist = px.line(daily, x="Date", y="orders", template="plotly_white")
             fig_hist.update_layout(yaxis_title="Số đơn", xaxis_title="", height=HISTORY_CHART_HEIGHT)
@@ -708,23 +717,27 @@ with bh_left:
         st.plotly_chart(fig_hist, use_container_width=True)
     else:
         st.info("Không đủ cột (date) hoặc không có dữ liệu đơn hàng.")
-with bh_right:
-    cat_html = "<ul>" + "".join(f"<li>{icon_for_category(c)} {c}</li>" for c in top_categories) + "</ul>" if top_categories else "<p><i>(Không đủ dữ liệu)</i></p>"
-    prod_html = "<ul>" + "".join(f"<li>{p}</li>" for p in top_products) + "</ul>" if top_products else "<p><i>(Không đủ dữ liệu)</i></p>"
+with cat_col:
+    cat_items = "".join(f"<li>{icon_for_category(c)} <strong>{c}</strong></li>" for c in top_categories) if top_categories else "<p><i>(Không đủ dữ liệu)</i></p>"
     st.markdown(f"""
-        <div class="pref-inline">
-          <div class="pref-box cat">
-            <h5>Ngành hàng ưa thích</h5>
-            {cat_html}
-          </div>
-            <div class="pref-box prod">
-            <h5>Sản phẩm thường mua</h5>
-            {prod_html}
-          </div>
+        <div class="pref-box cat">
+          <h5>Ngành hàng ưa thích</h5>
+          <ul>{cat_items}</ul>
+        </div>
+    """, unsafe_allow_html=True)
+with prod_col:
+    prod_items = "".join(f"<li>{p}</li>" for p in top_products) if top_products else "<p><i>(Không đủ dữ liệu)</i></p>"
+    st.markdown(f"""
+        <div class="pref-box prod">
+          <h5>Sản phẩm thường mua</h5>
+          <ul>{prod_items}</ul>
         </div>
     """, unsafe_allow_html=True)
 st.markdown('</div>', unsafe_allow_html=True)
 
+# ======================
+# STRATEGY / CARE / COMBO
+# ======================
 CHANNEL_TOOLTIPS = {
     "Email": "Gửi nội dung / ưu đãi qua email.",
     "Email định kỳ": "Email theo lịch để duy trì tương tác & nhắc mua.",
@@ -772,14 +785,15 @@ def render_strategy_box(plan):
     return f"""
     <div class='blue-box equal-box'>
       <h4>Chiến lược & Gợi ý Cá nhân</h4>
-      <p><b>Mục tiêu chính:</b> {plan['goal']}</p>
-      <p><b>KPIs:</b> {kpi_html if kpi_html else '—'}</p>
-      <p><b>Nguy cơ theo dõi:</b> {risk_html if risk_html else '—'}</p>
-      <p><b>Đường nâng cấp:</b> {plan['upgrade_path']}</p>
-      <p style="margin-bottom:4px;"><b>Chiến thuật ưu tiên:</b></p>
-      <ul style="margin-top:0; padding-left:20px;">{''.join(tactic_html)}</ul>
-      {notes_html}
-      <p class='note-hover'><i>Rê chuột vào pill để xem giải thích.</i></p>
+      <div class="box-scroll-inner">
+        <p><b>Mục tiêu chính:</b> {plan['goal']}</p>
+        <p><b>KPIs:</b> {kpi_html if kpi_html else '—'}</p>
+        <p><b>Nguy cơ theo dõi:</b> {risk_html if risk_html else '—'}</p>
+        <p><b>Đường nâng cấp:</b> {plan['upgrade_path']}</p>
+        <p style="margin-bottom:4px;"><b>Chiến thuật ưu tiên:</b></p>
+        <ul style="margin-top:0; padding-left:20px;">{''.join(tactic_html)}</ul>
+        {notes_html}
+      </div>
     </div>
     """
 
@@ -795,7 +809,6 @@ def build_customer_care_plan(seg_key, row, personalized_plan, q_rec, q_freq, q_m
         channels = ["Email định kỳ","Push","In-app recommendation"]; summary = "Duy trì tần suất & mở rộng cross-sell nhẹ."
     else:
         channels = ["Email","Push"]; summary = "Tiếp tục thu thập dữ liệu hành vi."
-
     cadence=[]
     def add(step,timing,channel,action): cadence.append({"Bước":step,"Thời điểm":timing,"Kênh":channel,"Hành động":action})
     if seg_key in ("NEW","ACTIVE"):
@@ -824,7 +837,6 @@ def build_customer_care_plan(seg_key, row, personalized_plan, q_rec, q_freq, q_m
         add(3,"Tháng 1","In-app recommendation","Gợi ý nâng AOV nhẹ")
     else:
         add(1,"Rolling","Email","Thu thập thêm hành vi")
-
     if seg_key in ("LOST","LIGHT"):
         nbh="Soạn email win-back cá nhân hoá trong 24h."
     elif seg_key in ("NEW","ACTIVE"):
@@ -842,19 +854,27 @@ def build_customer_care_plan(seg_key, row, personalized_plan, q_rec, q_freq, q_m
 care_plan = build_customer_care_plan(seg_key,row,personalized_plan,q_rec,q_freq,q_mon,top_products)
 
 def render_customer_care_box(care_plan: dict):
-    channel_html = " ".join(f"<span class='care-pill' data-tip='{CHANNEL_TOOLTIPS.get(c, c)}'>{c}</span>" for c in care_plan["primary_channels"])
-    cadence_rows = "".join(f"<tr><td>{c['Bước']}</td><td>{c['Thời điểm']}</td><td>{c['Kênh']}</td><td>{c['Hành động']}</td></tr>" for c in care_plan["cadence"])
+    channel_html = " ".join(
+        f"<span class='care-pill' data-tip='{CHANNEL_TOOLTIPS.get(c, c)}'>{c}</span>"
+        for c in care_plan["primary_channels"]
+    )
+    cadence_rows = "".join(
+        f"<tr><td>{c['Bước']}</td><td>{c['Thời điểm']}</td><td>{c['Kênh']}</td><td>{c['Hành động']}</td></tr>"
+        for c in care_plan["cadence"]
+    )
     return f"""
     <div class="care-box equal-box">
       <h5>Gợi ý chăm sóc khách hàng</h5>
-      <p><b>Tóm tắt:</b> {care_plan['summary']}</p>
-      <p><b>Kênh ưu tiên:</b> {channel_html}</p>
-      <p style="margin:6px 0 4px 0;"><b>Nhịp chăm sóc đề xuất:</b></p>
-      <table class="care-table">
-        <thead><tr><th>Bước</th><th>Thời điểm</th><th>Kênh</th><th>Hành động</th></tr></thead>
-        <tbody>{cadence_rows}</tbody>
-      </table>
-      <p class="care-micro"><b>Cần làm gì tiếp theo:</b> {care_plan['nbh_action']}</p>
+      <div class="box-scroll-inner">
+        <p><b>Tóm tắt:</b> {care_plan['summary']}</p>
+        <p><b>Kênh ưu tiên:</b> {channel_html}</p>
+        <p style="margin:6px 0 4px 0;"><b>Nhịp chăm sóc đề xuất:</b></p>
+        <table class="care-table" style="width:100%; border-collapse:collapse;">
+          <thead><tr><th>Bước</th><th>Thời điểm</th><th>Kênh</th><th>Hành động</th></tr></thead>
+          <tbody>{cadence_rows}</tbody>
+        </table>
+        <p class="care-micro"><b>Cần làm gì tiếp theo:</b> {care_plan['nbh_action']}</p>
+      </div>
     </div>
     """
 
@@ -862,7 +882,9 @@ combo_html = "<ul>" + "".join(combo_lines) + "</ul>" if combo_lines else "<p cla
 combo_box_html = f"""
 <div class="combo-box equal-box">
   <h5>Gợi ý combo sản phẩm</h5>
-  {combo_html}
+  <div class="box-scroll-inner">
+    {combo_html}
+  </div>
 </div>
 """
 
@@ -876,9 +898,19 @@ with c3:
     st.markdown(combo_box_html, unsafe_allow_html=True)
 st.markdown('</div>', unsafe_allow_html=True)
 
-cl_profile_row = fetch_cluster_row(profile_df, cluster_id) if (cluster_id is not None and pd.notna(cluster_id)) else None
+# Ghi chú chung
+st.markdown(
+    "<div style='font-size:12px; color:#555; margin:4px 0 16px 4px;'>"
+    "<i>Ghi chú: Rê chuột vào các pill để xem giải thích chi tiết.</i>"
+    "</div>",
+    unsafe_allow_html=True
+)
+
+# ======================
+# CLUSTER COMPARISON
+# ======================
 st.markdown("### So sánh với Trung bình Cụm")
-if cl_profile_row is not None:
+if 'cl_profile_row' in locals() and cl_profile_row is not None:
     compare = pd.DataFrame({
         "Metric":["Recency","Frequency","Monetary"],
         "ClusterMean":[cl_profile_row.get("Recency_mean"),
@@ -915,15 +947,20 @@ if cl_profile_row is not None:
 else:
     st.info("Không đủ thông tin cụm để so sánh.")
 
+# ======================
+# RAW ORDERS
+# ======================
 with st.expander("Chi tiết đơn hàng (top 50 gần nhất)"):
     if not cust_orders.empty and "date" in cust_orders.columns:
         cust_orders = cust_orders.sort_values("date", ascending=False)
     st.dataframe(cust_orders.head(50))
 
-st.markdown("<div style='text-align:left; color:#666; font-size:13px; margin-top:30px;'>© 2025 Đồ án tốt nghiệp lớp DL07_K306 - RFM Segmentation - Nhóm J</div>", unsafe_allow_html=True)
-
-st.markdown("""
-<style>
-.radar-wrap { background:transparent !important; border:none !important; box-shadow:none !important; }
-</style>
-""", unsafe_allow_html=True)
+# ======================
+# FOOTER
+# ======================
+st.markdown(
+    "<div style='text-align:left; color:#666; font-size:13px; margin-top:30px;'>"
+    "© 2025 Đồ án tốt nghiệp lớp DL07_K306 - RFM Segmentation - Nhóm J"
+    "</div>",
+    unsafe_allow_html=True
+)
