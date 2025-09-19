@@ -666,7 +666,7 @@ with tab_product:
     if "product_id" not in df.columns:
         st.info("Thiếu product_id.")
     else:
-        top_n_prod = st.slider("Top N sản phẩm", 5, 100, 38, key="top_prod")
+        top_n_prod = st.slider("Top N sản phẩm", 5, 100, 18, key="top_prod")
         prod_df = compute_product_metrics(df, top_n=top_n_prod)
         if not prod_df.empty:
             prod_vn = rename_for_display(prod_df, {
