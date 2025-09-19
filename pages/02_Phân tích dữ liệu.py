@@ -34,7 +34,7 @@ st.markdown("""
     background: #fff5eb;
     border-radius: 4px;
     font-size: 0.9rem;
-    line-height: 1.35rem;
+    line-height: 1.4rem;
 }
 .strategy-box h4 {
     margin-top: 0;
