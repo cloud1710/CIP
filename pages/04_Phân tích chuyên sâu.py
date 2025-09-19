@@ -352,7 +352,7 @@ css_raw = """
   display:flex; align-items:center; justify-content:space-between;
   box-shadow:0 2px 6px rgba(0,0,0,0.07); color:#fff;
 }
-.segment-header h2 { font-size:26px; font-weight:700; margin:0; }
+.segment-header h2 { font-size:26px; font-weight:700; margin:0; color:#fff }
 .segment-badge { font-size:16px; font-weight:600; padding:6px 16px;
   background:rgba(255,255,255,0.18); border:1px solid rgba(255,255,255,0.38); border-radius:24px;}
 
