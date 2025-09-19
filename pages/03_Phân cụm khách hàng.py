@@ -158,6 +158,7 @@ def aggregate_rfm_level_for_treemap(df: pd.DataFrame,
     agg["Share_%"] = agg["Rows"] / total_rows * 100
     for col in ["Monetary_Sum","Monetary_Avg"]:
         if col not in agg.columns:
+            col
             agg[col] = 0
     return agg.sort_values("Rows", ascending=False)
 
@@ -206,7 +207,6 @@ def plot_rfm_treemap_fixed(agg_df: pd.DataFrame,
         else: fz_raw = 14 + base_font_boost
         if area < 45 and seg != "NEW": continue
         if seg in {"LOST","REGULARS","BIG SPENDER"}: fz = fz_raw
-          # LIGHT & STARS thu nhỏ nhẹ
         elif seg in {"LIGHT","STARS"}: fz = max(6, round(fz_raw*(2/3)))
         else: fz = max(6, round(fz_raw*0.5))
         ax.text(x+dx/2, y+dy/2, f"{seg}\n{share:.1f}%", ha="center", va="center",
@@ -581,7 +581,6 @@ with tab_cluster:
                 if c_round in cluster_strat_df.columns:
                     cluster_strat_df[c_round] = cluster_strat_df[c_round].round(dec)
 
-            # Đổi tên cột hiển thị (giữ nguyên thuật ngữ lõi)
             rename_cols = {
                 "Count":"Số lượng KH",
                 "RecencyMean":"Recency TB",
@@ -604,11 +603,6 @@ with tab_cluster:
                     "RecencyMean","FrequencyMean","MonetaryMean"
                 ]
                 st.dataframe(agg[raw_cols], use_container_width=True)
-
-            rank_df = cluster_show.sort_values("Điểm giá trị", ascending=False)
-            st.markdown("### Xếp hạng giá trị cụm (Điểm giá trị)")
-            st.dataframe(rank_df, use_container_width=True)
-            st.info("Dùng để ưu tiên chăm sóc / chiến dịch.")
 
 # ============ FOOTER ============
 st.markdown(
