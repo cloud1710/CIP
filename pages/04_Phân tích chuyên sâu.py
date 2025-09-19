@@ -367,7 +367,7 @@ css_raw = """
   --strategy-box-height:505px;
 }
 .segment-header {border-radius:14px;padding:18px 22px 14px 22px;margin:6px 0 18px 0;display:flex;align-items:center;justify-content:space-between;box-shadow:0 2px 6px rgba(0,0,0,0.07);color:#fff;}
-.segment-header h2 {font-size:26px;font-weight:700;margin:0;}
+.segment-header h2 {font-size:26px;font-weight:700;margin:0;color:#fff;}
 .segment-badge {font-size:16px;font-weight:600;padding:6px 16px;background:rgba(255,255,255,0.18);border:1px solid rgba(255,255,255,0.38);border-radius:24px;}
 .metric-card,.cluster-card {background:var(--card-bg-soft);border:1px solid var(--card-border);border-radius:14px;box-shadow:0 1px 3px rgba(0,0,0,0.05);}
 .metric-card {padding:18px 20px;display:flex;flex-direction:column;gap:14px;}
