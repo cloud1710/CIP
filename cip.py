@@ -69,7 +69,7 @@ features = [
     {
         "title": "Tập luật (Association Rule)",
         "img": IMG_RULE,
-        "text": "Khai phá mặt hàng thường đi kèm trong đơn.\nTạo combo, tối ưu bán kèm & đề xuất sản phẩm",
+        "text": "Sắp xếp các nhóm khách hàng dựa trên các tiêu chí RFM để dễ dàng tiếp cận và chăm sóc",
         "tag": "TẬP LUẬT"
     },
     {
