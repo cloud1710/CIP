@@ -851,7 +851,7 @@ if cl_profile_row is not None:
     fig_diff = px.bar(
         compare, x="DiffPctAdj", y="Metric", color="Direction", orientation="h",
         text=compare["DiffPctAdj"].map(lambda v: f"{v:+.1f}%"),
-        template="plotly_white", title="Chênh lệch % so với Cụm (Recency đảo dấu)", color_discrete_map=color_map_swapped, category_orders={"Direction": ["Better / Higher", "Worse / Lower"]
+        template="plotly_white", title="Chênh lệch % so với Cụm (Recency đảo dấu)", color_discrete_map=color_map_swapped, category_orders={"Direction": ["Better / Higher", "Worse / Lower"]}
     )
     fig_diff.add_vline(x=0, line_color="#666", line_dash="dash")
     fig_diff.update_layout(xaxis_title="Adj % Difference (Positive = Better)", yaxis_title="")
