@@ -143,10 +143,9 @@ rfm_all = enrich_rfm_with_metrics(
     spread_review=False
 )
 
-if "initial_customer_id" not in st.session_state:
-    st.session_state.initial_customer_id = random.randint(1000, 5000)
+DEFAULT_CUSTOMER_ID = 2348
 if "customer_id_input" not in st.session_state:
-    st.session_state.customer_id_input = str(st.session_state.initial_customer_id)
+    st.session_state.customer_id_input = str(DEFAULT_CUSTOMER_ID)
 
 st.title("👤 Phân tích Khách hàng chuyên sâu")
 st.markdown("Nhập ID khách hàng (1000–5000)")
