@@ -51,7 +51,8 @@ Mục tiêu: hỗ trợ đội Marketing / CRM / Data vận hành chiến lượ
 │   ├── 01_Về chúng tôi.py         # About
 │   ├── 02_Phân tích dữ liệu.py    # EDA
 │   ├── 03_Phân cụm khách hàng.py  # Segmentation
-│   └── 04_Phân tích chuyên sâu.py # Clustering chuyên sâu
+│   ├── 04_Dự đoán khách hàng mới.py # Dự đoán khách hàng giả định
+│   └── 05_Phân tích chuyên sâu.py # Clustering chuyên sâu
 ├── scripts/
 │   └── train_gmm.py          # Train mô hình GMM hoặc các pipeline
 ├── src/
