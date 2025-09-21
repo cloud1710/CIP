@@ -845,8 +845,8 @@ if cl_profile_row is not None:
     compare["DiffPctAdj"] = compare.apply(adj, axis=1)
     compare["Direction"] = np.where(compare["DiffPctAdj"]>=0,"Better / Higher","Worse / Lower")
     color_map_swapped = {
-    "Better / Higher": "#f28e8e",  # đỏ 
-    "Worse / Lower":  "#91c7a3"    # xanh 
+    "Better / Higher": "#f46d43",  # đỏ 
+    "Worse / Lower":  "#5e4fa2"    # xanh 
     }
     fig_diff = px.bar(
         compare, x="DiffPctAdj", y="Metric", color="Direction", orientation="h",
