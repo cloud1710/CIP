@@ -11,40 +11,31 @@ from src.rfm_rule_scoring import compute_rfm_scores
 from src.rfm_labeling import apply_rfm_level
 
 try:
-    from src.cluster_profile import load_artifacts  # model, scaler, labels_df, profile_df, meta, mapping
+    from src.cluster_profile import load_artifacts
 except Exception as e:
     load_artifacts = None
     _cluster_import_error = str(e)
 
-try:
-    from src.recommendation import recommend_actions
-except Exception:
-    def recommend_actions(rfm_level: str, cluster=None, monetary=None):
-        return {"goal": "N/A","tactics": ["(Thiếu module recommendation)"],"notes": []}
-
 st.set_page_config(page_title="Phân cụm khách hàng - Segmentation", layout="wide")
 st.title("🔀 Phân tích & Phân cụm khách hàng (k=5)")
-TARGET_K = 5
 
 DATA_PATH = Path("data/orders_full.csv")
 GMM_DIR = Path("models/gmm/gmm_rfm_v1")
 REQUIRED_BASE_COLS = {"customer_id", "order_id"}
 
-# ---- Cấu hình biểu đồ Bubble (cụm) ----
 BUBBLE_SHOW_TEXT = True
 BUBBLE_ADD_REFERENCE_LINES = True
 BUBBLE_REVERSE_RECENCY_AXIS = False
 BUBBLE_SIZE_MAX = 60
 BUBBLE_TITLE_PREFIX = "Trung bình các cụm RFM"
 
-# ---- Scatter khách hàng ----
 SHOW_RM_SCATTER = True
 CUSTOMER_SCATTER_MAX_POINTS = 15000
 CUSTOMER_SCATTER_RANDOM_STATE = 42
 CUSTOMER_SCATTER_OPACITY = 0.55
 SHOW_RM_MEDIAN_LINES = True
 
-# ============ SIDEBAR ============
+# Sidebar
 with st.sidebar:
     st.header("⚙️ Tuỳ chọn dữ liệu")
     uploaded_file = st.file_uploader("Tải lên CSV", type=["csv"])
@@ -59,7 +50,6 @@ with st.sidebar:
             "- Nếu tên cột khác chuẩn, cần chỉnh lại trong mã nguồn."
         )
 
-# ============ CACHE ============
 @st.cache_data
 def load_raw_default():
     return load_orders(DATA_PATH)
@@ -78,7 +68,6 @@ def load_artifacts_cached(dir_path: Path):
         raise RuntimeError(f"Không import được cluster_profile: {_cluster_import_error}")
     return load_artifacts(dir_path)
 
-# ============ UPLOAD ============
 def try_build_rfm_from_uploaded(bytes_data: bytes):
     try:
         df = pd.read_csv(io.BytesIO(bytes_data))
@@ -112,31 +101,75 @@ else:
 if uploaded_error:
     st.warning(f"Lỗi file tải lên → dùng dữ liệu mặc định. Chi tiết: {uploaded_error}")
 
-# ============ GMM LABELS JOIN ============
-labels_df = profile_df = meta = gmm_model = mapping = None
+# Load GMM artifacts
+labels_df = profile_df = meta = gmm_model = mapping = scaler = None
 gmm_loaded_ok = False
 try:
     if GMM_DIR.exists():
         gmm_model, scaler, labels_df, profile_df, meta, mapping = load_artifacts_cached(GMM_DIR)
-        if labels_df.index.name != "customer_id":
-            if "customer_id" in labels_df.columns:
-                labels_df = labels_df.set_index("customer_id")
+        if labels_df.index.name != "customer_id" and "customer_id" in labels_df.columns:
+            labels_df = labels_df.set_index("customer_id")
         if "customer_id" in rfm.columns:
             rfm = rfm.set_index("customer_id").join(labels_df, how="left").reset_index()
         else:
             rfm = rfm.join(labels_df, how="left")
         gmm_loaded_ok = True
     else:
-        st.warning(f"Chưa có thư mục artifacts: {GMM_DIR}. Hãy chạy quá trình huấn luyện trước.")
-except FileNotFoundError as e:
-    st.warning(f"Thiếu artifact GMM: {e}")
+        st.warning(f"Chưa có thư mục artifacts: {GMM_DIR}. Hãy huấn luyện trước.")
 except Exception as e:
     st.warning(f"Không load được artifacts GMM: {e}")
 
-# ============ HELPERS ============
+# ---- Mapping hành động cụm cho tab Predict ----
+def build_cluster_action_map(rfm_df: pd.DataFrame):
+    if not gmm_loaded_ok or "cluster_gmm" not in rfm_df.columns:
+        return {}
+    agg_tmp = (
+        rfm_df.groupby("cluster_gmm")
+              .agg(
+                  RecencyMean=("Recency","mean"),
+                  FrequencyMean=("Frequency","mean"),
+                  MonetaryMean=("Monetary","mean"),
+              )
+              .reset_index()
+    )
+    if agg_tmp.empty:
+        return {}
+    r_med_all = agg_tmp["RecencyMean"].median()
+    f_med_all = agg_tmp["FrequencyMean"].median()
+    m_med_all = agg_tmp["MonetaryMean"].median()
+    def classify(row):
+        r_cat = "Mới" if row["RecencyMean"] <= r_med_all else "Lâu"
+        f_cat = "F cao" if row["FrequencyMean"] >= f_med_all else "F thấp"
+        m_cat = "Chi tiêu cao" if row["MonetaryMean"] >= m_med_all else "Chi tiêu thấp"
+        if r_cat == "Mới" and f_cat == "F cao" and m_cat == "Chi tiêu cao":
+            return "VIP / Core","Giữ chân & mở rộng CLV"
+        elif r_cat == "Mới" and f_cat == "F cao":
+            return "Hoạt động tần suất cao","Tăng AOV qua bundle"
+        elif r_cat == "Mới" and m_cat == "Chi tiêu cao":
+            return "Big Ticket mới","Khuyến khích lặp lại sớm"
+        elif r_cat == "Mới":
+            return "Mới thử nghiệm","Onboarding + ưu đãi đơn 2"
+        elif f_cat == "F cao" and m_cat == "Chi tiêu cao":
+            return "Nguy cơ bỏ - giá trị cao","Win-back cá nhân hoá"
+        elif f_cat == "F cao":
+            return "F cao giá trị thấp","Cross-sell margin cao"
+        elif m_cat == "Chi tiêu cao":
+            return "Ngủ quên giá trị cao","Reactivation mạnh"
+        else:
+            return "Ngủ quên giá trị thấp","Re-engagement nhẹ"
+    cluster_map = {}
+    for _, rrow in agg_tmp.iterrows():
+        _, action = classify(rrow)
+        cluster_map[int(rrow["cluster_gmm"])] = action
+    return cluster_map
+
+cluster_action_map = build_cluster_action_map(rfm)
+
 def big(n):
-    try: return f"{n:,.0f}"
-    except: return n
+    try:
+        return f"{n:,.0f}"
+    except:
+        return n
 
 def build_distribution(df: pd.DataFrame, col: str):
     dist = df[col].value_counts(dropna=False).to_frame("Count")
@@ -158,13 +191,28 @@ def aggregate_rfm_level_for_treemap(df: pd.DataFrame,
     agg["Share_%"] = agg["Rows"] / total_rows * 100
     for col in ["Monetary_Sum","Monetary_Avg"]:
         if col not in agg.columns:
-            col
             agg[col] = 0
     return agg.sort_values("Rows", ascending=False)
 
 DEFAULT_SEGMENT_COLORS = {
     "STARS": "#1b7837","BIG SPENDER": "#00429d","LOYAL": "#73a2c6","ACTIVE": "#4daf4a",
     "NEW": "#ffcc00","LIGHT": "#f29e4c","REGULARS": "#9e9e9e","LOST": "#d73027","OTHER": "#cccccc"
+}
+SEGMENT_DISPLAY_COLORS = {
+    "STARS":"#1b7837","BIG SPENDER":"#00429d","LOYAL":"#73a2c6",
+    "ACTIVE":"#4daf4a","NEW":"#ffcc00","LIGHT":"#f29e4c",
+    "REGULARS":"#9e9e9e","LOST":"#d73027","OTHER":"#607d8b"
+}
+SEGMENT_STRATEGY_MAP = {
+    "LOST": ["Win-back voucher / ưu đãi", "Khảo sát lý do rời bỏ", "Flash sale tái kích hoạt"],
+    "REGULARS": ["Ưu đãi duy trì nhẹ", "Theo dõi nâng cấp", "Giữ trải nghiệm ổn định"],
+    "BIG SPENDER": ["CSKH ưu tiên", "Gợi ý combo/subscription", "Ưu đãi cá nhân hoá"],
+    "STARS": ["Chăm sóc VIP", "Upsell cao cấp", "Referral thưởng cao"],
+    "LIGHT": ["Combo nhỏ tăng AOV", "Content nuôi dưỡng", "Ưu đãi nhỏ nhưng đều"],
+    "ACTIVE": ["Ưu đãi kích hoạt", "Remarketing đa kênh", "Upsell nhẹ"],
+    "LOYAL": ["Tích điểm / gamification", "Referral program", "Ưu tiên thử sản phẩm mới"],
+    "NEW": ["Email chào mừng + voucher", "Onboarding sản phẩm chủ lực", "Nhắc quay lại sớm"],
+    "OTHER": ["Theo dõi thêm hành vi", "Điều chỉnh tiêu chí phân nhóm"]
 }
 
 def plot_rfm_treemap_fixed(agg_df: pd.DataFrame,
@@ -174,7 +222,8 @@ def plot_rfm_treemap_fixed(agg_df: pd.DataFrame,
     import squarify, matplotlib.pyplot as plt, matplotlib as mpl
     df = agg_df.copy()
     df = df[df["Count"] > 0]
-    if df.empty: raise ValueError("Không có dữ liệu treemap.")
+    if df.empty:
+        raise ValueError("Không có dữ liệu treemap.")
     sizes = df["Count"].astype(float).tolist()
     normed = squarify.normalize_sizes(sizes, 100, 60)
     rects = squarify.squarify(normed, 0, 0, 100, 60)
@@ -205,10 +254,14 @@ def plot_rfm_treemap_fixed(agg_df: pd.DataFrame,
         elif area < 250: fz_raw = 11 + base_font_boost
         elif area < 400: fz_raw = 12 + base_font_boost
         else: fz_raw = 14 + base_font_boost
-        if area < 45 and seg != "NEW": continue
-        if seg in {"LOST","REGULARS","BIG SPENDER"}: fz = fz_raw
-        elif seg in {"LIGHT","STARS"}: fz = max(6, round(fz_raw*(2/3)))
-        else: fz = max(6, round(fz_raw*0.5))
+        if area < 45 and seg != "NEW":
+            continue
+        if seg in {"LOST","REGULARS","BIG SPENDER"}:
+            fz = fz_raw
+        elif seg in {"LIGHT","STARS"}:
+            fz = max(6, round(fz_raw*(2/3)))
+        else:
+            fz = max(6, round(fz_raw*0.5))
         ax.text(x+dx/2, y+dy/2, f"{seg}\n{share:.1f}%", ha="center", va="center",
                 color=text_color, fontsize=fz, fontweight="bold", linespacing=0.9)
     ax.set_title(title, fontweight="bold", fontsize=17)
@@ -216,144 +269,13 @@ def plot_rfm_treemap_fixed(agg_df: pd.DataFrame,
             transform=ax.transAxes, fontsize=8, color="#555")
     return fig
 
-def render_segment_blue_boxes():
-    definitions = {
-        "LOST": "Khách hàng lâu không quay lại",
-        "REGULARS": "Mua đều, ổn định",
-        "BIG SPENDER": "Chi tiêu lớn gần đây",
-        "STARS": "Tần suất cao & chi tiêu cao",
-        "LIGHT": "Mua thưa, chi tiêu thấp",
-        "ACTIVE": "Vừa quay lại, tần suất còn thấp",
-        "LOYAL": "Trung thành, tần suất cao ổn định",
-        "NEW": "Khách hàng mới (lần đầu)",
-        "OTHER": "Nhỏ / chưa rõ đặc trưng"
-    }
-    strategies = {
-        "LOST": [
-            "Win-back voucher / quà sinh nhật",
-            "Khảo sát lý do rời bỏ",
-            "Flash sale tái kích hoạt"
-        ],
-        "REGULARS": [
-            "Ưu đãi duy trì nhẹ",
-            "Theo dõi nâng cấp sang LOYAL / BIG SPENDER",
-            "Giữ trải nghiệm ổn định"
-        ],
-        "BIG SPENDER": [
-            "CSKH ưu tiên / hotline riêng",
-            "Gợi ý combo hoặc subscription",
-            "Ưu đãi cá nhân hoá giữ chân"
-        ],
-        "STARS": [
-            "Chăm sóc VIP / sự kiện riêng",
-            "Upsell & cross-sell cao cấp",
-            "Referral thưởng cao"
-        ],
-        "LIGHT": [
-            "Combo nhỏ tăng giá trị đơn",
-            "Content nuôi dưỡng / review",
-            "Ưu đãi nhỏ nhưng đều"
-        ],
-        "ACTIVE": [
-            "Ưu đãi kích hoạt (Mua 2 tặng 1)",
-            "Remarketing email / push",
-            "Upsell nhẹ sản phẩm liên quan"
-        ],
-        "LOYAL": [
-            "Tích điểm / gamification",
-            "Referral program",
-            "Ưu tiên thử sản phẩm mới"
-        ],
-        "NEW": [
-            "Email cảm ơn + voucher đơn 2",
-            "Onboarding: sp phổ biến",
-            "Nhắc quay lại trong 30 ngày"
-        ],
-        "OTHER": [
-            "Theo dõi thêm hành vi",
-            "Điều chỉnh tiêu chí phân nhóm",
-            "Kiểm soát chi phí chăm sóc"
-        ]
-    }
-    def_box_rows = []
-    for seg, desc in definitions.items():
-        def_box_rows.append(f'<p><span class="label">{html.escape(seg)}:</span> {html.escape(desc)}</p>')
-    strat_box_rows = []
-    for seg, acts in strategies.items():
-        bullet_items = "".join(f"<li>{html.escape(a)}</li>" for a in acts)
-        strat_box_rows.append(
-            f'''<div class="seg-block">
-                  <p><span class="label">{html.escape(seg)}:</span></p>
-                  <ul>{bullet_items}</ul>
-                </div>'''
-        )
-    html_block = f"""
-    <style>
-      .blue-box-wrapper {{
-        font-family: system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
-        max-width: 1020px;
-        margin: 8px 0 22px 0;
-      }}
-      .blue-box {{
-        background: #F5F9FF;
-        border: none;
-        border-radius:6px;
-        padding:12px 14px 6px 14px;
-        margin-bottom:16px;
-      }}
-      .blue-box h4 {{
-        margin:0 0 8px 0;
-        font-size:15px;
-        font-weight:600;
-        color:#114b94;
-      }}
-      .blue-box p {{
-        margin:4px 0 4px 0;
-        line-height:1.32;
-        font-size:13.8px;
-      }}
-      .blue-box span.label {{
-        display:inline-block;
-        min-width:110px;
-        font-weight:600;
-        color:#0d47a1;
-      }}
-      .blue-box ul {{
-        margin:2px 0 6px 20px;
-        padding-left:14px;
-        line-height:1.28;
-        font-size:13.5px;
-        list-style: disc;
-      }}
-      .blue-box li {{ margin:2px 0; }}
-      .seg-block {{ margin-bottom:4px; }}
-      @media (min-width:900px){{
-        .strategy-grid {{
-          display:grid;
-          grid-template-columns: repeat(auto-fill,minmax(250px,1fr));
-          gap:4px 20px;
-        }}
-      }}
-    </style>
-    <div class="blue-box-wrapper">
-      <div class="blue-box">
-        <h4>Định nghĩa nhóm</h4>
-        {''.join(def_box_rows)}
-      </div>
-      <div class="blue-box">
-        <h4>Chiến lược gợi ý</h4>
-        <div class="strategy-grid">
-          {''.join(strat_box_rows)}
-        </div>
-      </div>
-    </div>
-    """
-    return html_block
+tab_rule, tab_cluster, tab_predict = st.tabs([
+    "📊 Tập luật khách hàng",
+    "🧩 Phân cụm khách hàng",
+    "🧮 Dự đoán khách hàng mới"
+])
 
-# ============ LAYOUT ============
-tab_rule, tab_cluster = st.tabs(["📊 Tập luật khách hàng", "🧩 Phân cụm khách hàng"])
-
-# -------- TAB TẬP LUẬT / RFM --------
+# TAB RULE
 with tab_rule:
     st.subheader("Tổng quan RFM")
     c1,c2,c3,c4 = st.columns(4)
@@ -364,20 +286,14 @@ with tab_rule:
 
     st.markdown("### Phân phối RFM theo cấp độ")
     if "RFM_Level" in rfm.columns:
-        dist = build_distribution(rfm, "RFM_Level").rename(columns={
-            "Count":"Số lượng",
-            "Percent":"Tỷ lệ (%)"
-        })
+        dist = build_distribution(rfm, "RFM_Level").rename(columns={"Count":"Số lượng","Percent":"Tỷ lệ (%)"})
         st.dataframe(dist, use_container_width=True)
     else:
         st.warning("Thiếu trường RFM_Level.")
 
     st.markdown("### Top khách hàng (Monetary cao)")
     topN = st.slider("Số khách hiển thị", 5, 50, 10)
-    st.dataframe(
-        rfm.sort_values("Monetary", ascending=False).head(topN),
-        use_container_width=True
-    )
+    st.dataframe(rfm.sort_values("Monetary", ascending=False).head(topN), use_container_width=True)
 
     st.markdown("### Treemap nhóm RFM")
     agg_rfm = aggregate_rfm_level_for_treemap(rfm) if "RFM_Level" in rfm.columns else pd.DataFrame()
@@ -390,13 +306,14 @@ with tab_rule:
         except Exception as e:
             st.error(f"Lỗi vẽ treemap: {e}")
 
-    st.markdown("### Định nghĩa & chiến lược (Segments)")
-    st.markdown(render_segment_blue_boxes(), unsafe_allow_html=True)
+    st.markdown("### Gợi ý chiến lược theo Segment (tham khảo)")
+    strat_df = pd.DataFrame([(k, "; ".join(v)) for k,v in SEGMENT_STRATEGY_MAP.items()],
+                            columns=["Segment","Chiến thuật gợi ý"])
+    st.dataframe(strat_df, use_container_width=True)
 
-# -------- TAB PHÂN CỤM (GMM) --------
+# TAB CLUSTER
 with tab_cluster:
     st.subheader("Phân cụm khách hàng (GMM k=5)")
-
     if not gmm_loaded_ok:
         st.warning(
             "Chưa có hoặc chưa load được nhãn GMM.\n\n"
@@ -423,7 +340,7 @@ with tab_cluster:
             cluster_order = [f"Cụm {i}" for i in sorted(agg['cluster_gmm'].unique())]
             agg["BubbleSize"] = agg["FrequencyMean"].clip(lower=0.0001)
 
-            # Phân loại & ValueScore
+            # Phân loại + hành động (đã dùng để tạo bảng & mapping)
             r_med_all = agg["RecencyMean"].median()
             f_med_all = agg["FrequencyMean"].median()
             m_med_all = agg["MonetaryMean"].median()
@@ -447,22 +364,16 @@ with tab_cluster:
                     return "Ngủ quên giá trị cao","Reactivation mạnh"
                 else:
                     return "Ngủ quên giá trị thấp","Re-engagement nhẹ"
-            r_inv = (agg["RecencyMean"].max() - agg["RecencyMean"]) + 1e-9
-            r_norm = (r_inv - r_inv.min())/(r_inv.max()-r_inv.min()+1e-9)
-            f_norm = (agg["FrequencyMean"]-agg["FrequencyMean"].min())/(agg["FrequencyMean"].max()-agg["FrequencyMean"].min()+1e-9)
-            m_norm = (agg["MonetaryMean"]-agg["MonetaryMean"].min())/(agg["MonetaryMean"].max()-agg["MonetaryMean"].min()+1e-9)
-            agg["ValueScore"] = (r_norm + f_norm + m_norm)/3
             classes, actions = [], []
-            for _, row in agg.iterrows():
-                c,a = classify(row); classes.append(c); actions.append(a)
-            agg["Phân loại"] = classes; agg["Hành động gợi ý"] = actions
+            for _, rowc in agg.iterrows():
+                c,a = classify(rowc); classes.append(c); actions.append(a)
+            agg["Phân loại"] = classes
+            agg["Hành động gợi ý"] = actions
 
             if profile_df is not None:
                 prof_cols = []
-                if "cluster_marketing_name" in profile_df.columns:
-                    prof_cols.append("cluster_marketing_name")
-                if "cluster_label_desc" in profile_df.columns:
-                    prof_cols.append("cluster_label_desc")
+                if "cluster_marketing_name" in profile_df.columns: prof_cols.append("cluster_marketing_name")
+                if "cluster_label_desc" in profile_df.columns: prof_cols.append("cluster_label_desc")
                 prof_show = profile_df.copy()
                 prof_show = prof_show[prof_cols] if prof_cols else None
                 if prof_show is not None:
@@ -470,20 +381,14 @@ with tab_cluster:
                     agg = agg.merge(prof_show, on="cluster_gmm", how="left")
 
             fig_cluster = px.scatter(
-                agg,
-                x="RecencyMean", y="MonetaryMean",
-                size="BubbleSize",
-                color="Cluster",
+                agg, x="RecencyMean", y="MonetaryMean",
+                size="BubbleSize", color="Cluster",
                 category_orders={"Cluster": cluster_order},
                 hover_name="Cluster",
                 hover_data={
-                    "RecencyMean":":.1f",
-                    "MonetaryMean":":.1f",
-                    "FrequencyMean":":.2f",
-                    "Count": True,
-                    "BubbleSize": False,
-                    "Phân loại": True,
-                    "ValueScore":":.3f"
+                    "RecencyMean":":.1f","MonetaryMean":":.1f","FrequencyMean":":.2f",
+                    "Count": True,"BubbleSize": False,"Phân loại": True
+                    # ĐÃ GỠ 'ValueScore' để tránh lỗi vì không tồn tại cột
                 },
                 size_max=BUBBLE_SIZE_MAX,
                 template="plotly_white",
@@ -503,17 +408,13 @@ with tab_cluster:
                 fig_cluster.add_hline(y=m_med, line_dash="dot", line_color="#888",
                                       annotation_text="Monetary trung vị", annotation_position="bottom right")
             if BUBBLE_SHOW_TEXT:
-                fig_cluster.update_traces(
-                    text=agg["Cluster"],
-                    textposition="top center",
-                    marker_line_width=1,
-                    marker_line_color="#444"
-                )
+                fig_cluster.update_traces(text=agg["Cluster"], textposition="top center",
+                                          marker_line_width=1, marker_line_color="#444")
             st.plotly_chart(fig_cluster, use_container_width=True)
 
             if SHOW_RM_SCATTER:
                 st.markdown("### Phân bố khách hàng (Recency ↔ Monetary)")
-                cust_df = rfm.dropna(subset=["Recency", "Monetary", "cluster_gmm"]).copy()
+                cust_df = rfm.dropna(subset=["Recency","Monetary","cluster_gmm"]).copy()
                 total_pts = len(cust_df)
                 sampled_flag = False
                 if total_pts > CUSTOMER_SCATTER_MAX_POINTS:
@@ -532,20 +433,13 @@ with tab_cluster:
                 if sampled_flag:
                     scatter_title += f" (Lấy mẫu {len(cust_df)}/{total_pts})"
                 fig_rm = px.scatter(
-                    cust_df,
-                    x="Recency",
-                    y="Monetary",
+                    cust_df, x="Recency", y="Monetary",
                     color="Cluster",
                     category_orders={"Cluster": cluster_order},
                     color_discrete_map=color_map if color_map else None,
                     opacity=CUSTOMER_SCATTER_OPACITY,
                     template="plotly_white",
-                    hover_data={
-                        "customer_id": True,
-                        "Recency":":.1f",
-                        "Monetary":":.2f",
-                        "cluster_gmm": True
-                    },
+                    hover_data={"customer_id": True,"Recency":":.1f","Monetary":":.2f","cluster_gmm": True},
                     title=scatter_title
                 )
                 if SHOW_RM_MEDIAN_LINES and not cust_df.empty:
@@ -559,7 +453,7 @@ with tab_cluster:
                     xaxis_title="Recency (ngày từ lần mua gần nhất)",
                     yaxis_title="Monetary (tổng chi tiêu)",
                     legend_title="Cụm",
-                    margin=dict(l=20, r=20, t=60, b=40)
+                    margin=dict(l=20,r=20,t=60,b=40)
                 )
                 if BUBBLE_REVERSE_RECENCY_AXIS:
                     fig_rm.update_layout(xaxis=dict(autorange="reversed"))
@@ -568,25 +462,22 @@ with tab_cluster:
             st.markdown("### Định nghĩa & phân tích cụm (GMM k=5)")
             display_cols = [
                 "Cluster","Count","RecencyMean","FrequencyMean","MonetaryMean",
-                "Phân loại","Hành động gợi ý","ValueScore"
+                "Phân loại","Hành động gợi ý"
             ]
             extra_inserted = False
             if "cluster_marketing_name" in agg.columns:
-                display_cols.insert(1, "cluster_marketing_name"); extra_inserted = True
+                display_cols.insert(1,"cluster_marketing_name"); extra_inserted = True
             elif "cluster_label_desc" in agg.columns:
-                display_cols.insert(1, "cluster_label_desc"); extra_inserted = True
+                display_cols.insert(1,"cluster_label_desc"); extra_inserted = True
 
             cluster_strat_df = agg[display_cols].copy()
-            for c_round, dec in [("RecencyMean",1),("FrequencyMean",2),("MonetaryMean",1),("ValueScore",3)]:
+            for c_round, dec in [("RecencyMean",1),("FrequencyMean",2),("MonetaryMean",1)]:
                 if c_round in cluster_strat_df.columns:
                     cluster_strat_df[c_round] = cluster_strat_df[c_round].round(dec)
-
             rename_cols = {
-                "Count":"Số lượng KH",
-                "RecencyMean":"Recency TB",
-                "FrequencyMean":"Frequency TB",
-                "MonetaryMean":"Monetary TB",
-                "ValueScore":"Điểm giá trị"
+                "Count":"Số lượng KH","RecencyMean":"Recency TB",
+                "FrequencyMean":"Frequency TB","MonetaryMean":"Monetary TB",
+                "Hành động gợi ý":"Hành động gợi ý"
             }
             if extra_inserted:
                 if "cluster_marketing_name" in cluster_strat_df.columns:
@@ -595,16 +486,213 @@ with tab_cluster:
                     rename_cols["cluster_label_desc"] = "Mô tả cụm"
             cluster_show = cluster_strat_df.rename(columns=rename_cols)
             st.dataframe(cluster_show, use_container_width=True)
-            st.info("Điểm giá trị = trung bình chuẩn hoá (đảo Recency + Frequency + Monetary). Có thể điều chỉnh trọng số trong mã.")
 
-            with st.expander("Bảng số liệu cụm (thô)"):
-                raw_cols = [
-                    "cluster_gmm","Cluster","Count",
-                    "RecencyMean","FrequencyMean","MonetaryMean"
-                ]
-                st.dataframe(agg[raw_cols], use_container_width=True)
+# TAB PREDICT
+with tab_predict:
+    st.subheader("🧮 Dự đoán khách hàng mới (RFM + Cluster)")
+    st.markdown("Điều chỉnh các slider để xem R,F,M, Segment và dự đoán Cluster GMM.")
 
-# ============ FOOTER ============
+    if "predict_initialized" not in st.session_state:
+        sample_row = rfm.sample(1, random_state=np.random.randint(0, 100000)).iloc[0]
+        st.session_state.recency_val = int(sample_row["Recency"])
+        st.session_state.frequency_val = int(sample_row["Frequency"])
+        st.session_state.monetary_val = int(sample_row["Monetary"])
+        st.session_state.predict_initialized = True
+
+    recency_max = int(max(7, rfm["Recency"].max()))
+    freq_max = int(max(5, rfm["Frequency"].max()))
+    monetary_max = int(max(50, rfm["Monetary"].max()))
+
+    col_left, col_right = st.columns([1,1])
+    with col_left:
+        recency_val = st.slider("Recency (ngày từ lần mua gần nhất)", 1, recency_max, int(st.session_state.recency_val))
+        frequency_val = st.slider("Frequency (số đơn)", 1, freq_max, int(st.session_state.frequency_val))
+        monetary_val = st.slider("Monetary (tổng chi tiêu)", 1, monetary_max, int(st.session_state.monetary_val))
+
+    st.session_state.recency_val = recency_val
+    st.session_state.frequency_val = frequency_val
+    st.session_state.monetary_val = monetary_val
+
+    st.markdown("""
+    <style>
+      .result-box {
+        background:#E7F3FF;
+        border:1px solid #d0e3f5;
+        border-radius:16px;
+        padding:22px 24px 20px 24px;
+        margin-top:0;
+        box-shadow:0 2px 6px rgba(0,0,0,0.06);
+        min-height:360px;
+      }
+      .result-box h4 {
+        margin:0 0 14px 0;
+        font-size:18px;
+        font-weight:700;
+        color:#0d3d66;
+      }
+      .segment-badge {
+        font-weight:800;
+        text-transform:uppercase;
+        font-size:24px;
+        letter-spacing:.6px;
+        margin:4px 0 14px 0;
+        display:inline-block;
+      }
+      .score-badges {
+        display:flex;
+        gap:10px;
+        flex-wrap:wrap;
+        margin:4px 0 18px 0;
+      }
+      .score-item {
+        background:#ffffff;
+        padding:10px 16px;
+        border-radius:12px;
+        font-size:13.5px;
+        font-weight:600;
+        min-width:110px;
+        text-align:center;
+        border:1px solid #e2e8f0;
+      }
+      .kv {
+        display:grid;
+        grid-template-columns:150px 1fr;
+        row-gap:8px;
+        column-gap:14px;
+        font-size:14px;
+        margin:0 0 14px 0;
+      }
+      .kv div.key { font-weight:600; color:#0f3554; }
+      .tactics-list { margin:4px 0 2px 20px; padding:0; }
+      .tactics-list li { margin:5px 0; font-size:14px; }
+    </style>
+    """, unsafe_allow_html=True)
+
+    def score_new_customer(base_rfm: pd.DataFrame,
+                           recency: float,
+                           frequency: float,
+                           monetary: float):
+        required = ["customer_id","Recency","Frequency","Monetary"]
+        for c in required:
+            if c not in base_rfm.columns:
+                raise ValueError(f"Thiếu cột {c} trong RFM hiện tại.")
+        temp = base_rfm[required].copy()
+        new_row = pd.DataFrame([{
+            "customer_id": "__NEW__",
+            "Recency": recency,
+            "Frequency": frequency,
+            "Monetary": monetary
+        }])
+        combined = pd.concat([temp, new_row], ignore_index=True)
+        scored_all = compute_rfm_scores(combined)
+        labeled_all = apply_rfm_level(scored_all)
+        new_scored = labeled_all[labeled_all["customer_id"] == "__NEW__"].copy()
+        if new_scored.empty:
+            raise RuntimeError("Không tìm thấy bản ghi khách mới sau khi tính.")
+        return new_scored.iloc[-1]
+
+    def predict_cluster_gmm(recency, frequency, monetary):
+        if not gmm_loaded_ok or gmm_model is None:
+            return None
+        try:
+            feats = np.array([[recency, frequency, monetary]], dtype=float)
+            feats_scaled = scaler.transform(feats) if scaler is not None else feats
+            probs = gmm_model.predict_proba(feats_scaled)[0]
+            cluster_id = int(np.argmax(probs))
+            confidence = float(np.max(probs))
+            return {"cluster_id": cluster_id, "confidence": confidence}
+        except Exception as e:
+            return {"error": str(e)}
+
+    def describe_cluster(cid: int):
+        if profile_df is not None:
+            if cid in getattr(profile_df, "index", []):
+                row = profile_df.loc[cid]
+                parts = []
+                if "cluster_marketing_name" in row: parts.append(f"{row['cluster_marketing_name']}")
+                if "cluster_label_desc" in row: parts.append(f"{row['cluster_label_desc']}")
+                if parts: return " - ".join(parts)
+            if profile_df is not None and "cluster" in profile_df.columns:
+                tmp = profile_df[profile_df["cluster"] == cid]
+                if not tmp.empty:
+                    row = tmp.iloc[0]
+                    parts = []
+                    if "cluster_marketing_name" in row: parts.append(f"{row['cluster_marketing_name']}")
+                    if "cluster_label_desc" in row: parts.append(f"{row['cluster_label_desc']}")
+                    if parts: return " - ".join(parts)
+        return f"Cụm {cid}"
+
+    try:
+        row = score_new_customer(rfm,
+                                 st.session_state.recency_val,
+                                 st.session_state.frequency_val,
+                                 st.session_state.monetary_val)
+    except Exception as e:
+        with col_right:
+            st.error(f"Lỗi tính RFM cho khách mới: {e}")
+        row = None
+
+    if row is not None:
+        r_score = int(row["R"])
+        f_score = int(row["F"])
+        m_score = int(row["M"])
+        rfm_level = row.get("RFM_Level","OTHER")
+        rfm_segment = row.get("RFM_Segment", f"{r_score}{f_score}{m_score}")
+
+        cluster_pred = predict_cluster_gmm(
+            st.session_state.recency_val,
+            st.session_state.frequency_val,
+            st.session_state.monetary_val
+        )
+        cluster_id = None
+        cluster_desc = "Không có model GMM"
+        confidence_pct = "-"
+        if cluster_pred is None:
+            pass
+        elif "error" in cluster_pred:
+            cluster_desc = f"Lỗi dự đoán: {cluster_pred['error']}"
+        else:
+            cluster_id = cluster_pred["cluster_id"]
+            cluster_desc = describe_cluster(cluster_id)
+            confidence_pct = f"{cluster_pred['confidence']*100:.1f}%"
+
+        segment_tactics = SEGMENT_STRATEGY_MAP.get(rfm_level, ["(Chưa có chiến lược)"])
+        segment_tactics_html = "".join(f"<li>{html.escape(t)}</li>" for t in segment_tactics)
+
+        cluster_action = cluster_action_map.get(cluster_id) if cluster_id is not None else None
+        cluster_tactics_html = f"<li>{html.escape(cluster_action)}</li>" if cluster_action else "<li>(Không có gợi ý)</li>"
+
+        seg_color = SEGMENT_DISPLAY_COLORS.get(rfm_level, "#607d8b")
+
+        result_html = f"""
+        <div class='result-box'>
+          <h4>Kết quả phân tích khách hàng mới</h4>
+          <div class='segment-badge' style='color:{seg_color};'>{html.escape(rfm_level)}</div>
+          <div class='score-badges'>
+            <div class='score-item'>R: {r_score}</div>
+            <div class='score-item'>F: {f_score}</div>
+            <div class='score-item'>M: {m_score}</div>
+            <div class='score-item'>Segment: {html.escape(rfm_segment)}</div>
+          </div>
+          <div class='kv'>
+            <div class='key'>Cluster GMM</div><div>{'-' if cluster_id is None else cluster_id}</div>
+            <div class='key'>Mô tả cluster</div><div>{html.escape(cluster_desc)}</div>
+            <div class='key'>Độ tin cậy</div><div>{confidence_pct}</div>
+          </div>
+          <div style='margin:4px 0 6px 0; font-weight:600;'>Chiến thuật đề xuất (theo Segment)</div>
+          <ul class='tactics-list'>
+            {segment_tactics_html}
+          </ul>
+          <div style='margin:10px 0 6px 0; font-weight:600;'>Chiến thuật đề xuất (theo Cluster GMM)</div>
+          <ul class='tactics-list'>
+            {cluster_tactics_html}
+          </ul>
+        </div>
+        """
+        with col_right:
+            st.markdown(result_html, unsafe_allow_html=True)
+
+# Footer
 st.markdown(
     "<div style='text-align:left; color:#666; font-size:13px; margin-top:30px;'>© 2025 Đồ án tốt nghiệp lớp DL07_K306 - RFM Segmentation - Nhóm J</div>",
     unsafe_allow_html=True
