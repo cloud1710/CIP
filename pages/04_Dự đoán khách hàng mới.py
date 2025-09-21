@@ -97,7 +97,7 @@ st.markdown("""
   }
   .info-box h5 {
     margin:0 0 14px 0;
-    font-size:18px; /* = Kết quả dự đoán */
+    font-size:18px;
     font-weight:600;
     color:#0d3d66;
   }
@@ -109,13 +109,13 @@ st.markdown("""
   .section-title {
     margin:22px 0 12px 0;
     font-weight:600;
-    font-size:18px; /* = Kết quả dự đoán */
+    font-size:18px;
     color:#0d3d66;
   }
   ul.tactics { margin:4px 0 4px 20px; padding:0; }
   ul.tactics li {
     margin:4px 0;
-    font-size:14.5px; /* = size Segment value (ví dụ STARS) */
+    font-size:14.5px;
     font-weight:500;
   }
   footer { margin-top:40px; color:#666; font-size:12.5px; text-align:left; }
@@ -125,7 +125,7 @@ st.markdown("""
 # ============== INTRO TEXT ==============
 st.markdown("Dựa trên R-F-M và mô hình GMM (k=5) để đánh giá Segment và Cluster của khách hàng mới này")
 
-# ============== HELPERS ==============
+# ============== HELPERS (giữ nguyên / tái sử dụng) ==============
 def classify_cluster(recency_mean, frequency_mean, monetary_mean,
                      r_med, f_med, m_med):
     r_cat = "Mới" if recency_mean <= r_med else "Lâu"
@@ -191,25 +191,8 @@ def generate_mapping_by_monetary_desc(df: pd.DataFrame,
         mapping[int(row[internal_col])] = int(public_id)
     return mapping
 
-def refit_gmm(full_rfm_for_fit: pd.DataFrame):
-    from sklearn.preprocessing import StandardScaler
-    from sklearn.mixture import GaussianMixture
-    train = full_rfm_for_fit[["customer_id"] + FEATURES].copy()
-    scaler = StandardScaler()
-    X = train[FEATURES].values.astype(float)
-    Xs = scaler.fit_transform(X)
-    gmm = GaussianMixture(n_components=N_COMPONENTS, covariance_type="full",
-                          random_state=RANDOM_STATE)
-    gmm.fit(Xs)
-    probs = gmm.predict_proba(Xs)
-    internal = probs.argmax(axis=1)
-    train["internal_component"] = internal
-    mapping = generate_mapping_by_monetary_desc(train, "internal_component","Monetary")
-    train["cluster_gmm"] = [mapping.get(ic, ic) for ic in internal]
-    profile = compute_cluster_profile(train)
-    return gmm, scaler, train, profile, probs
-
 def score_new_customer_dynamic(base_rfm: pd.DataFrame, r, f, m):
+    # (giữ nguyên logic ban đầu)
     temp = base_rfm[["customer_id","Recency","Frequency","Monetary"]].copy()
     new_row = pd.DataFrame([{
         "customer_id":"__NEW__",
@@ -274,14 +257,46 @@ def get_strategy_list(segment_name: str):
     key = (segment_name or "OTHER").strip().upper()
     return STRATEGY_LIBRARY.get(key, STRATEGY_LIBRARY["OTHER"])
 
-# Đổi Stale -> Older
 def build_cluster_descriptor(r, f, m, r_med, f_med, m_med):
     rec_part = "Fresh" if r <= r_med else "Older"
     f_part = "HighFreq" if f >= f_med else "LowFreq"
     m_part = "HighValue" if m >= m_med else "LowValue"
     return " | ".join([rec_part, f_part, m_part])
 
-# ============== DEFAULTS ==============
+# ============== FIT GMM 1 LẦN (KHÔNG REFIT KHI KÉO) ==============
+@st.cache_resource
+def fit_gmm_base(full_rfm: pd.DataFrame):
+    from sklearn.preprocessing import StandardScaler
+    from sklearn.mixture import GaussianMixture
+
+    train = full_rfm[["customer_id"] + FEATURES].copy()
+    scaler = StandardScaler()
+    X = train[FEATURES].values.astype(float)
+    Xs = scaler.fit_transform(X)
+
+    gmm = GaussianMixture(
+        n_components=N_COMPONENTS,
+        covariance_type="full",
+        random_state=RANDOM_STATE
+    )
+    gmm.fit(Xs)
+    probs = gmm.predict_proba(Xs)
+    internal = probs.argmax(axis=1)
+    train["internal_component"] = internal
+
+    mapping = generate_mapping_by_monetary_desc(train, "internal_component","Monetary")
+    train["cluster_gmm"] = [mapping.get(ic, ic) for ic in internal]
+
+    profile = compute_cluster_profile(train)
+    return gmm, scaler, mapping, profile, train
+
+try:
+    gmm_model, scaler_model, cluster_mapping, cluster_profile, train_with_clusters = fit_gmm_base(rfm_base)
+except Exception as e:
+    st.error(f"Lỗi fit GMM ban đầu: {e}")
+    st.stop()
+
+# ============== DEFAULTS / SESSION STATE ==============
 DEFAULT_RECENCY = 33
 DEFAULT_FREQUENCY = 3
 DEFAULT_MONETARY = 109
@@ -292,98 +307,98 @@ if "initialized" not in st.session_state:
     st.session_state.monetary_val = DEFAULT_MONETARY
     st.session_state.initialized = True
 
-# ============== SLIDERS ==============
+# ============== SLIDERS (AUTO UPDATE) ==============
 recency_max = int(max(7, rfm_base["Recency"].max(), DEFAULT_RECENCY))
 freq_max = int(max(5, rfm_base["Frequency"].max(), DEFAULT_FREQUENCY))
 monetary_max = int(max(50, rfm_base["Monetary"].max(), DEFAULT_MONETARY))
 
 c_left, c_right = st.columns([1,1])
+
 with c_left:
-    recency_val = st.slider("Recency (ngày từ lần mua gần nhất)", 1, recency_max, int(st.session_state.recency_val))
-    frequency_val = st.slider("Frequency (số đơn)", 1, freq_max, int(st.session_state.frequency_val))
-    monetary_val = st.slider("Monetary (tổng chi tiêu)", 1, monetary_max, int(st.session_state.monetary_val))
-    run_btn = st.button("Tính toán và dự đoán", type="primary")
+    recency_val = st.slider("Recency (ngày từ lần mua gần nhất)",
+                            1, recency_max, int(st.session_state.recency_val))
+    frequency_val = st.slider("Frequency (số đơn)",
+                              1, freq_max, int(st.session_state.frequency_val))
+    monetary_val = st.slider("Monetary (tổng chi tiêu)",
+                             1, monetary_max, int(st.session_state.monetary_val))
 
 st.session_state.recency_val = recency_val
 st.session_state.frequency_val = frequency_val
 st.session_state.monetary_val = monetary_val
 
-if "auto_run_done" not in st.session_state:
-    run_btn = True
-    st.session_state.auto_run_done = True
-
+# ============== MEDIANS TO BUILD DESCRIPTOR ==============
 r_med_all = rfm_base["Recency"].median()
 f_med_all = rfm_base["Frequency"].median()
 m_med_all = rfm_base["Monetary"].median()
 
-if run_btn:
+# ============== DỰ ĐOÁN NHANH (KHÔNG REFIT) ==============
+try:
+    # 1) Cluster dựa trên GMM đã fit
+    X_new = np.array([[recency_val, frequency_val, monetary_val]], dtype=float)
+    Xs_new = scaler_model.transform(X_new)
+    probs_new = gmm_model.predict_proba(Xs_new)[0]
+    internal_new = int(np.argmax(probs_new))
+    public_cluster = int(cluster_mapping.get(internal_new, internal_new))
+    confidence = float(np.max(probs_new))
+
+    # 2) ValueScore từ profile sẵn
+    value_score_txt = "-"
+    if not cluster_profile.empty and public_cluster in cluster_profile["cluster_gmm"].values:
+        crow = cluster_profile[cluster_profile["cluster_gmm"] == public_cluster].iloc[0]
+        value_score_txt = f"{crow['ValueScore']:.3f}"
+
+    # 3) Tính R-F-M Scores + Segment (giữ nguyên hàm dynamic)
     try:
-        new_customer_row = pd.DataFrame([{
-            "customer_id":"__NEW__",
-            "Recency": recency_val,
-            "Frequency": frequency_val,
-            "Monetary": monetary_val
-        }])
-        fit_df = pd.concat([rfm_base[["customer_id","Recency","Frequency","Monetary"]], new_customer_row], ignore_index=True)
-        gmm, scaler, train_with_clusters, profile, probs_all = refit_gmm(fit_df)
+        scored_new = score_new_customer_dynamic(rfm_base, recency_val, frequency_val, monetary_val)
+        r_score = int(scored_new["R"]); f_score = int(scored_new["F"]); m_score = int(scored_new["M"])
+        rfm_level = scored_new.get("RFM_Level","OTHER")
+    except Exception:
+        r_score = f_score = m_score = "-"
+        rfm_level = "OTHER"
 
-        new_row_cluster = train_with_clusters[train_with_clusters["customer_id"]=="__NEW__"].iloc[-1]
-        public_cluster = int(new_row_cluster["cluster_gmm"])
+    # 4) Cluster descriptor
+    cluster_descriptor = build_cluster_descriptor(
+        recency_val, frequency_val, monetary_val,
+        r_med_all, f_med_all, m_med_all
+    )
 
-        try:
-            scored_new = score_new_customer_dynamic(rfm_base, recency_val, frequency_val, monetary_val)
-            r_score = int(scored_new["R"]); f_score = int(scored_new["F"]); m_score = int(scored_new["M"])
-            rfm_level = scored_new.get("RFM_Level","OTHER")
-        except Exception:
-            r_score=f_score=m_score="-"; rfm_level="OTHER"
+    # 5) Chiến lược gợi ý
+    strategy_list = get_strategy_list(rfm_level)
+    strategy_html = "".join(f"<li>{html.escape(s)}</li>" for s in strategy_list)
 
-        probs_new = probs_all[-1]
-        confidence = float(np.max(probs_new))
+    badges_row1 = f"""
+    <div class="badges-row equal3">
+      <div class="badge">R: {r_score}</div>
+      <div class="badge">F: {f_score}</div>
+      <div class="badge">M: {m_score}</div>
+    </div>
+    """
 
-        value_score_txt = "-"
-        if not profile.empty and public_cluster in profile["cluster_gmm"].values:
-            crow = profile[profile["cluster_gmm"]==public_cluster].iloc[0]
-            value_score_txt = f"{crow['ValueScore']:.3f}"
+    info_html = f"""
+    <div class="info-box">
+      <h5>Thông tin cụ thể</h5>
+      <div class="info-row"><b>Segment:</b> {html.escape(str(rfm_level))}</div>
+      <div class="info-row"><b>Cluster GMM:</b> {public_cluster}</div>
+      <div class="info-row"><b>Cluster Desc:</b> {html.escape(cluster_descriptor)}</div>
+      <div class="info-row"><b>Độ tin cậy:</b> {confidence*100:.1f}%</div>
+      <div class="info-row"><b>Value Score:</b> {value_score_txt}</div>
+    </div>
+    """
 
-        cluster_descriptor = build_cluster_descriptor(recency_val, frequency_val, monetary_val,
-                                                      r_med_all, f_med_all, m_med_all)
+    predict_html = f"""
+    <div class="predict-box">
+      <h4>Kết quả dự đoán</h4>
+      {badges_row1}
+      {info_html}
+      <div class="section-title">Chiến lược gợi ý (Theo Segment)</div>
+      <ul class="tactics">{strategy_html}</ul>
+    </div>
+    """
 
-        strategy_list = get_strategy_list(rfm_level)
-        strategy_html = "".join(f"<li>{html.escape(s)}</li>" for s in strategy_list)
+    with c_right:
+        st.markdown(predict_html, unsafe_allow_html=True)
 
-        badges_row1 = f"""
-        <div class="badges-row equal3">
-          <div class="badge">R: {r_score}</div>
-          <div class="badge">F: {f_score}</div>
-          <div class="badge">M: {m_score}</div>
-        </div>
-        """
-
-        info_html = f"""
-        <div class="info-box">
-          <h5>Thông tin cụ thể</h5>
-          <div class="info-row"><b>Segment:</b> {html.escape(str(rfm_level))}</div>
-          <div class="info-row"><b>Cluster GMM:</b> {public_cluster}</div>
-          <div class="info-row"><b>Cluster Desc:</b> {html.escape(cluster_descriptor)}</div>
-          <div class="info-row"><b>Độ tin cậy:</b> {confidence*100:.1f}%</div>
-          <div class="info-row"><b>Value Score:</b> {value_score_txt}</div>
-        </div>
-        """
-
-        predict_html = f"""
-        <div class="predict-box">
-          <h4>Kết quả dự đoán</h4>
-          {badges_row1}
-          {info_html}
-          <div class="section-title">Chiến lược gợi ý (Theo Segment)</div>
-          <ul class="tactics">{strategy_html}</ul>
-        </div>
-        """
-
-        with c_right:
-            st.markdown(predict_html, unsafe_allow_html=True)
-
-    except Exception as e:
-        st.error(f"Lỗi tính toán / dự đoán: {e}")
+except Exception as e:
+    st.error(f"Lỗi tính toán / dự đoán (no-refit): {e}")
 
 st.markdown("<footer>© 2025 Đồ án tốt nghiệp lớp DL07_K306 - RFM Segmentation - Nhóm J</footer>", unsafe_allow_html=True)
